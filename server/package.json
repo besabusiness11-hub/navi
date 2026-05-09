@@ -1,0 +1,26 @@
+{
+  "name": "navi-server",
+  "version": "1.0.0",
+  "description": "Navi backend — auth, Stripe, email, LiveKit, widget proxy",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js",
+    "agent": "node agent.js start"
+  },
+  "dependencies": {
+    "@livekit/agents": "^1.3.4",
+    "@livekit/agents-plugin-deepgram": "^1.3.4",
+    "@livekit/agents-plugin-openai": "^1.3.4",
+    "@livekit/agents-plugin-silero": "^1.3.4",
+    "@livekit/rtc-node": "^0.13.27",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "livekit-server-sdk": "^2.15.2",
+    "resend": "^3.2.0",
+    "stripe": "^14.21.0",
+    "zod": "^3.25.76"
+  }
+}
