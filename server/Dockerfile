@@ -5,11 +5,12 @@ FROM node:22-slim
 WORKDIR /app
 
 # Install deps first for layer caching.
-COPY package.json package-lock.json ./
+COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev
 
 # App source.
-COPY . .
+COPY server/ ./
+COPY public/widget.js ./public/widget.js
 
 ENV NODE_ENV=production
 EXPOSE 8000

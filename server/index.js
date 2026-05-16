@@ -64,7 +64,9 @@ app.use(cors(corsDelegate));
 app.use(express.json());
 
 // Serve the embeddable widget.js from public/
-app.use('/widget.js', express.static(join(__dir, '..', 'public', 'widget.js')));
+app.get('/widget.js', (_req, res) => {
+  res.sendFile(join(__dir, 'public', 'widget.js'));
+});
 
 app.use('/api/checkout', checkoutRouter);
 app.use('/api/session', sessionRouter);

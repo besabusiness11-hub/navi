@@ -26,7 +26,8 @@ services:
 
   web:
     build:
-      context: ./server
+      context: .
+      dockerfile: server/Dockerfile
     restart: unless-stopped
     command: node index.js
     env_file: [.env]
@@ -39,7 +40,8 @@ services:
 
   agent:
     build:
-      context: ./server
+      context: .
+      dockerfile: server/Dockerfile
     restart: unless-stopped
     command: node agent.js start
     env_file: [.env]

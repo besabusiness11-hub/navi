@@ -1,0 +1,10 @@
+node_modules
+server/node_modules
+dist
+.git
+.env
+*.log
+server/*.log
+server/navi.db
+server/navi.db-shm
+server/navi.db-wal
