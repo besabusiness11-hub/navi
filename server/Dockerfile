@@ -10,7 +10,7 @@ RUN npm ci --omit=dev
 
 # App source.
 COPY server/ ./
-COPY public/widget.js ./public/widget.js
+COPY public/widget.js public/vinile-*.png ./public/
 
 ENV NODE_ENV=production
 EXPOSE 8000

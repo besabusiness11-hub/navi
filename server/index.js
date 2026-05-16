@@ -64,6 +64,7 @@ app.use(cors(corsDelegate));
 app.use(express.json());
 
 // Serve the embeddable widget.js from public/
+app.use(express.static(join(__dir, 'public')));
 app.get('/widget.js', (_req, res) => {
   res.sendFile(join(__dir, 'public', 'widget.js'));
 });
