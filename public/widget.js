@@ -41,7 +41,15 @@
   let textMode = false;                     // text fallback active
   let chatHistory = [];                     // text-mode conversation
   let _siteContextCache = null;
+  let isConnecting = false;
   let PROACTIVE_DELAY = 120000;             // ms; overridden by config
+
+  const AUDIO_CONSTRAINTS = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+  };
 
   let visitorId = localStorage.getItem('_navi_vid') || Math.random().toString(36).slice(2);
   localStorage.setItem('_navi_vid', visitorId);
@@ -225,12 +233,14 @@
       #mic-btn, #close-btn, #kbd-btn {
         width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
         display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-        transition: background .2s;
+        transition: background .2s, transform .2s, opacity .2s;
       }
-      #mic-btn { background: #8c9ba1; }
-      #mic-btn.listening { background: #5ea236; }
+      #mic-btn { background: #8c9ba1; position: relative; }
+      #mic-btn.connecting { background: #4a7fff; cursor: progress; opacity: .85; }
+      #mic-btn.listening { background: #5ea236; box-shadow: 0 0 0 4px rgba(94,162,54,.18); }
       #mic-btn.speaking  { background: #e8a020; }
       #mic-btn.muted     { background: #cc3333; }
+      #mic-btn:active { transform: scale(.94); }
       #kbd-btn { background: #6b7780; }
       #kbd-btn.active { background: #4a7fff; }
       #mic-btn svg, #close-btn svg, #kbd-btn svg { width: 16px; height: 16px; stroke: white; }
@@ -282,7 +292,7 @@
               <line x1="17" y1="10" x2="17" y2="10"/><line x1="8" y1="15" x2="16" y2="15"/>
             </svg>
           </button>
-          <button id="mic-btn" aria-label="Toggle microphone">
+          <button id="mic-btn" aria-label="Start voice chat" title="Start voice chat">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="9" y="2" width="6" height="11" rx="3"/>
               <path d="M5 10a7 7 0 0 0 14 0"/>
@@ -326,9 +336,13 @@
       : s === 'speaking' ? 'Speaking' : s === 'connecting' ? 'Connecting…' : 'Active';
     statusText.className = s === 'listening' ? 'listening' : '';
     micBtn.className = '';
-    if (s === 'listening') micBtn.classList.add('listening');
+    micBtn.disabled = s === 'connecting';
+    if (s === 'connecting') micBtn.classList.add('connecting');
+    else if (s === 'listening') micBtn.classList.add('listening');
     else if (s === 'speaking') micBtn.classList.add('speaking');
     else if (s === 'muted' || s === 'denied') micBtn.classList.add('muted');
+    micBtn.setAttribute('aria-label', s === 'muted' ? 'Turn microphone on' : 'Mute microphone');
+    micBtn.title = s === 'muted' ? 'Turn microphone on' : 'Mute microphone';
     $$('.bar-el').forEach(b => {
       b.className = `bar-el${(s === 'listening' || s === 'speaking') ? ' active' : ''}`;
     });
@@ -422,7 +436,7 @@
       }
     } catch (_) { /* permission name unsupported */ }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS });
       stream.getTracks().forEach(t => t.stop());
       micState = 'granted';
       return true;
@@ -434,6 +448,8 @@
 
   // ── LiveKit connection ───────────────────────────────────────────────────────
   async function connect() {
+    if (isConnecting || room) return;
+    isConnecting = true;
     setStatus('connecting');
 
     // Mic permission must be granted before we burn a quota session.
@@ -443,6 +459,7 @@
       setStatus('denied');
       showTranscript('No microphone access — type your question instead.');
       setTextMode(true);
+      isConnecting = false;
       return;
     }
 
@@ -464,7 +481,7 @@
         return;
       }
       if (!res.ok) throw new Error(`session/start ${res.status}`);
-      const { token, wsUrl } = await res.json();
+      const { token, wsUrl, roomName } = await res.json();
 
       const r = new Room({ adaptiveStream: true, dynacast: true });
       room = r;
@@ -484,6 +501,7 @@
         const localSpeak  = speakers.some(p => p.isLocal);
         if (remoteSpeak)     setStatus('speaking');
         else if (localSpeak) setStatus('listening');
+        else if (room)       setStatus('listening');
         else                 setStatus('idle');
       });
 
@@ -512,23 +530,32 @@
 
       r.on(RoomEvent.Disconnected, () => {
         room = null;
+        isConnecting = false;
         if (isOpen) closeWidget();
       });
 
       await r.connect(wsUrl, token, { autoSubscribe: true });
-      await r.localParticipant.setMicrophoneEnabled(true);
+      await r.localParticipant.setMicrophoneEnabled(true, AUDIO_CONSTRAINTS);
+      fetch(`${BACKEND}/api/voice-dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomName, lang }),
+      }).catch(err => console.warn('[Navi] voice dispatch failed:', err.message));
       setStatus('listening');
+      isConnecting = false;
       setTimeout(() => sendSiteContext(r), 1200);
 
     } catch (err) {
       console.error('[Navi] connect error:', err.message);
       setStatus('idle');
       room = null;
+      isConnecting = false;
     }
   }
 
   function disconnect() {
     if (room) { try { room.disconnect(); } catch (_) {} room = null; }
+    isConnecting = false;
   }
 
   function sendSiteContext(r) {
@@ -669,13 +696,16 @@
     // Wire events.
     $('fab').addEventListener('click', openWidget);
     $('close-btn').addEventListener('click', closeWidget);
-    $('mic-btn').addEventListener('click', () => {
-      if (!room || !LK) return;
+    $('mic-btn').addEventListener('click', async () => {
+      if (!room || !LK) {
+        connect();
+        return;
+      }
       const { Track } = LK;
       const pub = room.localParticipant.getTrackPublication(Track.Kind.Audio);
       if (!pub) return;
       const nowMuted = pub.isMuted;
-      room.localParticipant.setMicrophoneEnabled(!!nowMuted);
+      await room.localParticipant.setMicrophoneEnabled(!!nowMuted, AUDIO_CONSTRAINTS);
       setStatus(nowMuted ? 'listening' : 'muted');
     });
     // Text fallback toggle + send.
