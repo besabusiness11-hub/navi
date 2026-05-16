@@ -42,6 +42,7 @@
   let chatHistory = [];                     // text-mode conversation
   let _siteContextCache = null;
   let isConnecting = false;
+  let remoteAudioEls = [];
   let PROACTIVE_DELAY = 120000;             // ms; overridden by config
 
   const AUDIO_CONSTRAINTS = {
@@ -489,11 +490,27 @@
       r.on(RoomEvent.TrackSubscribed, (track) => {
         if (track.kind !== Track.Kind.Audio) return;
         const audioEl = track.attach();
+        audioEl.autoplay = true;
+        audioEl.playsInline = true;
+        audioEl.controls = false;
+        audioEl.muted = false;
+        audioEl.style.display = 'none';
+        shadow.appendChild(audioEl);
+        remoteAudioEls.push(audioEl);
+        audioEl.play().catch((err) => {
+          console.warn('[Navi] remote audio autoplay blocked:', err.message);
+          showTranscript('Tap the microphone button to enable voice audio.');
+        });
         audioEl.addEventListener('play',  () => { if (isOpen) setStatus('speaking'); });
         audioEl.addEventListener('pause', () => { if (isOpen) setStatus('listening'); });
         audioEl.addEventListener('ended', () => { if (isOpen) setStatus('listening'); });
       });
-      r.on(RoomEvent.TrackUnsubscribed, (track) => track.detach());
+      r.on(RoomEvent.TrackUnsubscribed, (track) => {
+        track.detach().forEach(el => {
+          el.remove();
+          remoteAudioEls = remoteAudioEls.filter(audioEl => audioEl !== el);
+        });
+      });
 
       r.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
         if (!isOpen) return;
@@ -555,6 +572,8 @@
 
   function disconnect() {
     if (room) { try { room.disconnect(); } catch (_) {} room = null; }
+    remoteAudioEls.forEach(el => el.remove());
+    remoteAudioEls = [];
     isConnecting = false;
   }
 
@@ -702,11 +721,10 @@
         return;
       }
       const { Track } = LK;
-      const pub = room.localParticipant.getTrackPublication(Track.Kind.Audio);
-      if (!pub) return;
-      const nowMuted = pub.isMuted;
-      await room.localParticipant.setMicrophoneEnabled(!!nowMuted, AUDIO_CONSTRAINTS);
-      setStatus(nowMuted ? 'listening' : 'muted');
+      const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+      const currentlyOn = pub ? !pub.isMuted : false;
+      await room.localParticipant.setMicrophoneEnabled(!currentlyOn, AUDIO_CONSTRAINTS);
+      setStatus(currentlyOn ? 'muted' : 'listening');
     });
     // Text fallback toggle + send.
     $('kbd-btn').addEventListener('click', () => setTextMode(!textMode));
