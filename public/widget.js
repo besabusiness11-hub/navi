@@ -45,6 +45,7 @@
   let remoteAudioEls = [];
   let remoteAudioPlayed = false;
   let remoteAudioTrackPresent = false;     // agent TTS track subscribed
+  let speechFallbackTimer = null;
   let PROACTIVE_DELAY = 120000;             // ms; overridden by config
 
   const AUDIO_CONSTRAINTS = {
@@ -510,6 +511,7 @@
         });
         r.startAudio?.().then(playAudio).catch(playAudio);
         audioEl.addEventListener('play',  () => { remoteAudioPlayed = true; if (isOpen) setStatus('speaking'); });
+        audioEl.addEventListener('playing', () => { remoteAudioPlayed = true; if (isOpen) setStatus('speaking'); });
         audioEl.addEventListener('pause', () => { if (isOpen) setStatus('listening'); });
         audioEl.addEventListener('ended', () => { if (isOpen) setStatus('listening'); });
       });
@@ -538,12 +540,7 @@
           }
           if (msg.type === 'agent_text' && msg.text) {
             showTranscript(msg.text); setTimeout(hideTranscript, 5000);
-            // Voice handled by the LiveKit "roomio_audio" track. speechSynthesis
-            // only as last resort if no remote audio track ever subscribed —
-            // checked after a grace delay so it never talks over real TTS.
-            if (!remoteAudioTrackPresent) {
-              setTimeout(() => { if (!remoteAudioTrackPresent) speakFallback(msg.text); }, 2500);
-            }
+            scheduleSpeechFallback(msg.text);
           }
           // Navigate → scroll AND contextual highlight.
           if (msg.type === 'navigate' && msg.section) {
@@ -592,11 +589,23 @@
     remoteAudioEls = [];
     remoteAudioPlayed = false;
     remoteAudioTrackPresent = false;
+    if (speechFallbackTimer) clearTimeout(speechFallbackTimer);
+    speechFallbackTimer = null;
     isConnecting = false;
   }
 
-  function speakFallback(text) {
-    if (!('speechSynthesis' in window) || remoteAudioPlayed || !isOpen) return;
+  function scheduleSpeechFallback(text) {
+    if (speechFallbackTimer) clearTimeout(speechFallbackTimer);
+    speechFallbackTimer = setTimeout(() => {
+      const hasLiveKitPlayback = remoteAudioEls.some(el => !el.paused && el.currentTime > 0.25);
+      if (hasLiveKitPlayback) return;
+      console.warn('[Navi] LiveKit audio track subscribed but no audible playback; using browser speech fallback.');
+      speakFallback(text, true);
+    }, remoteAudioTrackPresent ? 1400 : 600);
+  }
+
+  function speakFallback(text, force = false) {
+    if (!('speechSynthesis' in window) || (!force && remoteAudioPlayed) || !isOpen) return;
     const clean = String(text || '').replace(/\[[A-Z]+:[^\]]+\]/g, '').trim();
     if (!clean) return;
     try {
