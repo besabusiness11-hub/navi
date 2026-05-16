@@ -335,12 +335,20 @@ export default defineAgent({
     sess.on('user_input_transcribed', async (ev) => {
       if (!ev.isFinal) return;
       const t = ev.transcript ?? '';
+      console.log(`[Navi] user_input_transcribed final="${t.slice(0, 120)}"`);
       try {
         await ctx.room.localParticipant.publishData(
           new TextEncoder().encode(JSON.stringify({ type: 'transcript', text: t })),
           { reliable: true },
         );
       } catch (_) {}
+      if (t.trim()) {
+        try {
+          sess.generateReply({ userInput: t });
+        } catch (err) {
+          console.warn('[Navi] generateReply from transcript failed:', err?.message ?? err);
+        }
+      }
     });
 
     // ── Data messages from widget ────────────────────────────────────────────

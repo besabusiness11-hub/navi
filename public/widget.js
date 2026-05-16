@@ -43,6 +43,7 @@
   let _siteContextCache = null;
   let isConnecting = false;
   let remoteAudioEls = [];
+  let remoteAudioPlayed = false;
   let PROACTIVE_DELAY = 120000;             // ms; overridden by config
 
   const AUDIO_CONSTRAINTS = {
@@ -506,7 +507,7 @@
           showTranscript('Tap the microphone button to enable voice audio.');
         });
         r.startAudio?.().then(playAudio).catch(playAudio);
-        audioEl.addEventListener('play',  () => { if (isOpen) setStatus('speaking'); });
+        audioEl.addEventListener('play',  () => { remoteAudioPlayed = true; if (isOpen) setStatus('speaking'); });
         audioEl.addEventListener('pause', () => { if (isOpen) setStatus('listening'); });
         audioEl.addEventListener('ended', () => { if (isOpen) setStatus('listening'); });
       });
@@ -535,6 +536,7 @@
           }
           if (msg.type === 'agent_text' && msg.text) {
             showTranscript(msg.text); setTimeout(hideTranscript, 5000);
+            speakFallback(msg.text);
           }
           // Navigate → scroll AND contextual highlight.
           if (msg.type === 'navigate' && msg.section) {
@@ -581,7 +583,26 @@
     if (room) { try { room.disconnect(); } catch (_) {} room = null; }
     remoteAudioEls.forEach(el => el.remove());
     remoteAudioEls = [];
+    remoteAudioPlayed = false;
     isConnecting = false;
+  }
+
+  function speakFallback(text) {
+    if (!('speechSynthesis' in window) || remoteAudioPlayed || !isOpen) return;
+    const clean = String(text || '').replace(/\[[A-Z]+:[^\]]+\]/g, '').trim();
+    if (!clean) return;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(clean);
+      utterance.lang = (config?.lang_auto ? detectLang() : config?.lang || detectLang()) || 'en';
+      utterance.rate = 1.02;
+      utterance.pitch = 1;
+      utterance.onstart = () => setStatus('speaking');
+      utterance.onend = () => { if (room && isOpen) setStatus('listening'); };
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn('[Navi] speech fallback failed:', err.message);
+    }
   }
 
   function sendSiteContext(r) {
