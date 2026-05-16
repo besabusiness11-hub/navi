@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, useScroll, useTransform, useMotionValue, useSpring, AnimatePresence, useMotionValueEvent } from 'framer-motion';
 import VoiceAgent from './VoiceAgent';
 import CookieBanner, { hasConsent } from './CookieBanner';
 import Footer from './Footer';
 import CheckoutModal from './CheckoutModal';
-import { Mail } from 'lucide-react';
 import { createContext, useContext } from 'react';
 
 export const LanguageContext = createContext();
@@ -26,7 +25,7 @@ const playSwitch = (() => {
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.06);
-    } catch (_) { }
+    } catch (_) { /* AudioContext unavailable — ignore */ }
   };
 })();
 
@@ -49,7 +48,7 @@ const playClick = (() => {
         osc.start(t + delay);
         osc.stop(t + delay + 0.04);
       });
-    } catch (_) { }
+    } catch (_) { /* AudioContext unavailable — ignore */ }
   };
 })();
 
@@ -98,51 +97,6 @@ const StaggerItem = ({ children, className = "" }) => (
   </motion.div>
 );
 
-const SkeletonBlock = ({ width, height = '12px', borderRadius = '6px', opacity = 0.07, className = '', delay = 0, style: extra = {} }) => (
-  <div
-    className={`animate-pulse ${className}`}
-    style={{ width, height, borderRadius, background: `rgba(255,255,255,${opacity})`, animationDelay: `${delay}ms`, ...extra }}
-  />
-);
-
-const TypewriterText = ({ text, startDelay = 2000 }) => {
-  const [displayed, setDisplayed] = useState('');
-  const containerRef = useRef(null);
-  const hasStarted = useRef(false);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting && !hasStarted.current) {
-        hasStarted.current = true;
-        setTimeout(() => {
-          let idx = 0;
-          const tick = setInterval(() => {
-            idx++;
-            setDisplayed(text.slice(0, idx));
-            if (idx >= text.length) clearInterval(tick);
-          }, 58);
-        }, startDelay);
-      }
-    }, { threshold: 0.3 });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [text, startDelay]);
-
-  return (
-    <span ref={containerRef}>
-      {displayed}
-      {displayed.length < text.length && (
-        <motion.span
-          animate={{ opacity: [1, 0] }}
-          transition={{ duration: 0.5, repeat: Infinity, repeatType: 'reverse' }}
-        >|</motion.span>
-      )}
-    </span>
-  );
-};
-
 const agentValues = [
   { label: 'Latency', value: '<300', unit: 'ms', side: 'left' },
   { label: 'Accuracy', value: '98.5', unit: '%', side: 'left' },
@@ -177,7 +131,7 @@ const ValueEntry = ({ val, textDone, delay }) => (
 );
 
 const SNIPPETS = {
-  script: `<script src="https://cdn.navi.ai/widget.js" data-key="YOUR_KEY" defer></script>`,
+  script: `<script src="https://getnavi.dev/widget.js" data-key="YOUR_KEY" defer></script>`,
   npm: `npm install @navi-ai/widget`,
 };
 
@@ -227,7 +181,7 @@ const InstallSnippet = () => {
           <span className="text-white/20 font-mono text-xs flex-shrink-0 select-none">$</span>
           <span className="font-mono text-xs text-white/60 truncate">
             {tab === 'script'
-              ? <><span className="text-[#7db3ff]">{'<script'}</span><span className="text-white/40">{' src='}</span><span className="text-[#7dde8a]">"https://cdn.navi.ai/widget.js"</span><span className="text-white/40">{' data-key='}</span><span className="text-[#7dde8a]">"YOUR_KEY"</span><span className="text-[#7db3ff]">{' defer></script>'}</span></>
+              ? <><span className="text-[#7db3ff]">{'<script'}</span><span className="text-white/40">{' src='}</span><span className="text-[#7dde8a]">"https://getnavi.dev/widget.js"</span><span className="text-white/40">{' data-key='}</span><span className="text-[#7dde8a]">"YOUR_KEY"</span><span className="text-[#7db3ff]">{' defer></script>'}</span></>
               : <><span className="text-white/40">npm install </span><span className="text-[#7dde8a]">@navi-ai/widget</span></>
             }
           </span>
@@ -699,7 +653,7 @@ const App = () => {
       try {
         if (!window.__naviAC) window.__naviAC = new (window.AudioContext || window.webkitAudioContext)();
         window.__naviAC.resume().catch(() => {});
-      } catch {}
+      } catch { /* AudioContext unavailable — ignore */ }
       document.removeEventListener('click',      unlock, true);
       document.removeEventListener('keydown',    unlock, true);
       document.removeEventListener('touchstart', unlock, true);
@@ -1038,26 +992,27 @@ const App = () => {
               </FadeUp>
               <FadeUp delay={0.15}>
                 <p className="text-white/50 text-lg font-light mb-20 max-w-xl">
-                  Start free. Scale when you're ready. Every plan includes the full Navi experience.
+                  Sessions, not counted minutes. Your agent never disappears mid-month. Free plan renews every month — forever.
                 </p>
               </FadeUp>
 
               {/* ── Plan cards ── */}
-              <div className="flex flex-col md:flex-row gap-4 justify-center mb-16 max-w-2xl mx-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-16 max-w-6xl mx-auto">
 
                 {/* FREE */}
-                <FadeUp delay={0.2} className="flex-1">
+                <FadeUp delay={0.2}>
                   <motion.div
                     whileHover={{ y: -4, transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] } }}
                     className="flex flex-col items-center text-center rounded-2xl p-6 border border-white/[0.07] h-full"
                     style={{ background: 'rgba(255,255,255,0.025)', backdropFilter: 'blur(12px)' }}
                   >
-                    <span className="text-[9px] font-mono tracking-[0.22em] uppercase text-white/25 mb-3">No credit card</span>
+                    <span className="text-[9px] font-mono tracking-[0.22em] uppercase text-white/25 mb-3">Renews monthly</span>
                     <div className="rounded-xl px-5 py-3 mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                      <span className="text-3xl font-bold text-white">$0</span>
+                      <span className="text-3xl font-bold text-white">€0</span>
                     </div>
                     <h3 className="text-base font-semibold text-white mb-1">Free</h3>
-                    <p className="text-white/30 text-[10px] font-mono mb-6">100 min lifetime · 1 agent</p>
+                    <p className="text-white/30 text-[10px] font-mono mb-1">50 sessions / mo · 1 agent</p>
+                    <p className="text-white/25 text-[9px] font-mono mb-6">Forever. Never expires.</p>
                     <motion.button
                       whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                       onMouseDown={playClick}
@@ -1069,7 +1024,32 @@ const App = () => {
                 </FadeUp>
 
                 {/* STARTER */}
-                <FadeUp delay={0.3} className="flex-1">
+                <FadeUp delay={0.25}>
+                  <motion.div
+                    whileHover={{ y: -4, transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] } }}
+                    className="flex flex-col items-center text-center rounded-2xl p-6 border border-white/[0.07] h-full"
+                    style={{ background: 'rgba(255,255,255,0.025)', backdropFilter: 'blur(12px)' }}
+                  >
+                    <span className="text-[9px] font-mono tracking-[0.22em] uppercase text-white/25 mb-3">For solo sites</span>
+                    <div className="rounded-xl px-5 py-3 mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                      <span className="text-3xl font-bold text-white">€49</span>
+                      <span className="text-white/30 text-[10px] font-mono ml-1">/mo</span>
+                    </div>
+                    <h3 className="text-base font-semibold text-white mb-1">Starter</h3>
+                    <p className="text-white/30 text-[10px] font-mono mb-1">200 sessions / mo · 1 agent</p>
+                    <p className="text-white/25 text-[9px] font-mono mb-6">vs Foyer $63 · −22%</p>
+                    <motion.button
+                      whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                      onMouseDown={playClick}
+                      onClick={() => setCheckoutPlan('starter')}
+                      className="w-full py-2.5 rounded-full text-sm font-sans font-medium tracking-[0.08em] text-white transition-all mt-auto"
+                      style={{ background: 'rgba(8,8,10,0.95)', border: '1px solid rgba(255,255,255,0.1)' }}
+                    >Open dashboard</motion.button>
+                  </motion.div>
+                </FadeUp>
+
+                {/* BUSINESS — Most Popular */}
+                <FadeUp delay={0.3}>
                   <div className="relative h-full">
                     <div className="absolute -inset-[1px] rounded-2xl pointer-events-none" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(88,140,255,0.18) 50%, rgba(255,255,255,0.06) 100%)' }} />
                     <motion.div
@@ -1079,15 +1059,16 @@ const App = () => {
                     >
                       <span className="text-[9px] font-mono tracking-[0.22em] uppercase mb-3" style={{ color: 'rgba(130,180,255,0.7)' }}>★ Most Popular</span>
                       <div className="rounded-xl px-5 py-3 mb-4" style={{ background: 'rgba(88,140,255,0.07)', border: '1px solid rgba(88,140,255,0.16)' }}>
-                        <span className="text-3xl font-bold text-white">$79</span>
+                        <span className="text-3xl font-bold text-white">€99</span>
                         <span className="text-white/30 text-[10px] font-mono ml-1">/mo</span>
                       </div>
-                      <h3 className="text-base font-semibold text-white mb-1">Starter</h3>
-                      <p className="text-white/30 text-[10px] font-mono mb-6">800 min/mo · 1 agent</p>
+                      <h3 className="text-base font-semibold text-white mb-1">Business</h3>
+                      <p className="text-white/30 text-[10px] font-mono mb-1">600 sessions / mo · 3 agents</p>
+                      <p className="text-white/25 text-[9px] font-mono mb-6">Multi-site included</p>
                       <motion.button
                         whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                         onMouseDown={playClick}
-                        onClick={() => setCheckoutPlan('starter')}
+                        onClick={() => setCheckoutPlan('business')}
                         className="w-full py-2.5 rounded-full text-sm font-sans font-medium tracking-[0.08em] text-white transition-all mt-auto"
                         style={{ background: 'rgba(8,8,10,0.97)', boxShadow: '0 0 0 1px rgba(255,255,255,0.11) inset' }}
                       >Open dashboard</motion.button>
@@ -1095,24 +1076,25 @@ const App = () => {
                   </div>
                 </FadeUp>
 
-                {/* GROWTH */}
-                <FadeUp delay={0.4} className="flex-1">
+                {/* AGENCY */}
+                <FadeUp delay={0.35}>
                   <motion.div
                     whileHover={{ y: -4, transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] } }}
                     className="flex flex-col items-center text-center rounded-2xl p-6 border border-white/[0.07] h-full"
                     style={{ background: 'rgba(255,255,255,0.025)', backdropFilter: 'blur(12px)' }}
                   >
-                    <span className="text-[9px] font-mono tracking-[0.22em] uppercase text-white/25 mb-3">Best Value</span>
+                    <span className="text-[9px] font-mono tracking-[0.22em] uppercase text-white/25 mb-3">White-label</span>
                     <div className="rounded-xl px-5 py-3 mb-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                      <span className="text-3xl font-bold text-white">$299</span>
+                      <span className="text-3xl font-bold text-white">€199</span>
                       <span className="text-white/30 text-[10px] font-mono ml-1">/mo</span>
                     </div>
-                    <h3 className="text-base font-semibold text-white mb-1">Growth</h3>
-                    <p className="text-white/30 text-[10px] font-mono mb-6">5,000 min/mo · 3 agents</p>
+                    <h3 className="text-base font-semibold text-white mb-1">Agency</h3>
+                    <p className="text-white/30 text-[10px] font-mono mb-1">1,500 sessions / mo · 10 agents</p>
+                    <p className="text-white/25 text-[9px] font-mono mb-6">Session packs available</p>
                     <motion.button
                       whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                       onMouseDown={playClick}
-                      onClick={() => setCheckoutPlan('growth')}
+                      onClick={() => setCheckoutPlan('agency')}
                       className="w-full py-2.5 rounded-full text-sm font-sans font-medium tracking-[0.08em] text-white transition-all mt-auto"
                       style={{ background: 'rgba(8,8,10,0.95)', border: '1px solid rgba(255,255,255,0.1)' }}
                     >Open dashboard</motion.button>
@@ -1123,31 +1105,33 @@ const App = () => {
 
               {/* ── Comparison table ── */}
               <FadeUp delay={0.5}>
-                <div className="max-w-2xl mx-auto mb-16 rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.015)' }}>
+                <div className="max-w-4xl mx-auto mb-16 rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.015)' }}>
                   {/* Header */}
-                  <div className="grid grid-cols-4 px-6 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+                  <div className="grid grid-cols-5 px-6 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
                     <div />
-                    {['Free', 'Starter', 'Growth'].map(n => (
+                    {['Free', 'Starter', 'Business', 'Agency'].map(n => (
                       <div key={n} className="text-center text-[10px] font-mono tracking-[0.18em] uppercase text-white/35">{n}</div>
                     ))}
                   </div>
                   {/* Rows */}
                   {[
-                    { label: 'Minutes', free: '100 total', starter: '800 / mo', growth: '5,000 / mo' },
-                    { label: 'Agents', free: '1', starter: '1', growth: '3' },
-                    { label: 'Pages indexed', free: '50', starter: '500', growth: '2,000' },
-                    { label: 'AI Models', free: 'Basic', starter: 'Advanced', growth: 'Advanced' },
-                    { label: 'Languages', free: '1', starter: '30+', growth: '30+' },
-                    { label: 'Watermark', free: '✓', starter: '—', growth: '—' },
-                    { label: 'Analytics', free: '—', starter: '✓', growth: '✓' },
-                    { label: 'Custom widget', free: '—', starter: '✓', growth: '✓' },
-                    { label: 'Lead notifications', free: '—', starter: '✓', growth: '✓' },
-                    { label: 'Early access', free: '—', starter: '—', growth: '✓' },
-                    { label: 'Priority support', free: '—', starter: '—', growth: '✓' },
+                    { label: 'Sessions',           free: '50 / mo',  starter: '200 / mo', business: '600 / mo', agency: '1,500 / mo' },
+                    { label: 'Renews monthly',     free: '✓',         starter: '✓',         business: '✓',         agency: '✓' },
+                    { label: 'Agents',             free: '1',         starter: '1',         business: '3',         agency: '10' },
+                    { label: 'Pages indexed',      free: '50',        starter: '500',       business: '2,000',     agency: '10,000' },
+                    { label: 'Languages',          free: '1',         starter: '30+',       business: '30+',       agency: '30+' },
+                    { label: 'Watermark',          free: '✓',         starter: '—',         business: '—',         agency: '—' },
+                    { label: 'Analytics',          free: '—',         starter: '✓',         business: '✓',         agency: '✓' },
+                    { label: 'Custom widget',      free: '—',         starter: '✓',         business: '✓',         agency: '✓' },
+                    { label: 'Lead notifications', free: '—',         starter: '✓',         business: '✓',         agency: '✓' },
+                    { label: 'Multi-site',         free: '—',         starter: '—',         business: '✓',         agency: '✓' },
+                    { label: 'White-label',        free: '—',         starter: '—',         business: '—',         agency: '✓' },
+                    { label: 'Session packs',      free: '—',         starter: '—',         business: '—',         agency: '✓' },
+                    { label: 'Priority support',   free: '—',         starter: '—',         business: '✓',         agency: '✓' },
                   ].map((row, i, arr) => (
-                    <div key={row.label} className="grid grid-cols-4 px-6 py-3" style={{ borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                    <div key={row.label} className="grid grid-cols-5 px-6 py-3" style={{ borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
                       <span className="text-[11px] font-mono text-white/35">{row.label}</span>
-                      {[row.free, row.starter, row.growth].map((val, j) => (
+                      {[row.free, row.starter, row.business, row.agency].map((val, j) => (
                         <span key={j} className={`text-center text-[11px] font-mono ${val === '—' ? 'text-white/15' : val === '✓' ? 'text-white/40' : 'text-white/65'}`}>
                           {val}
                         </span>

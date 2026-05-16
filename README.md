@@ -56,7 +56,7 @@ Three processes run in dev:
 - **Groq** — Llama 3.3 70B via OpenAI-compatible API
 - **OpenAI** — TTS-1-HD (`onyx`), Whisper STT
 - **Silero VAD** — speech endpointing
-- **Stripe** — checkout (Free / Starter $79 / Growth $299)
+- **Stripe** — checkout (Free €0 / Starter €49 / Business €99 / Agency €199 per month)
 - **Resend** — transactional email
 - **node:sqlite** — embedded user / conversation / lead storage
 
@@ -118,19 +118,24 @@ APP_URL=http://localhost:4000
 # LiveKit
 LIVEKIT_API_KEY=...
 LIVEKIT_API_SECRET=...
-LIVEKIT_URL=wss://your-project.livekit.cloud
 LIVEKIT_WS_URL=wss://your-project.livekit.cloud
+LIVEKIT_WEBHOOK_SECRET=...   # = LIVEKIT_API_SECRET — consumes quota on room end
 
 # AI
 GROQ_API_KEY=...
 OPENAI_API_KEY=...
 DEEPGRAM_API_KEY=...   # optional
 
-# Stripe (optional)
+# Stripe (optional) — run `node server/scripts/setup-stripe.js` to fill price IDs
 STRIPE_SECRET_KEY=...
 STRIPE_WEBHOOK_SECRET=...
 STRIPE_PRICE_STARTER=...
-STRIPE_PRICE_GROWTH=...
+STRIPE_PRICE_BUSINESS=...
+STRIPE_PRICE_AGENCY=...
+STRIPE_PACK_STARTER=...
+STRIPE_PACK_BUSINESS=...
+STRIPE_PACK_AGENCY=...
+STRIPE_TAX_ENABLED=0
 
 # Email (optional)
 RESEND_API_KEY=...
@@ -155,12 +160,20 @@ navi/
 ├── server/
 │   ├── index.js               # Express app — checkout, livekit, api routes
 │   ├── agent.js               # LiveKit voice agent worker (defineAgent)
-│   ├── db.js                  # node:sqlite — users, conversations, leads
+│   ├── db.js                  # node:sqlite — users, conversations, leads, sessions
 │   ├── email.js               # Resend transactional emails
+│   ├── crawler.js             # site crawler for the knowledge base
+│   ├── kb.js                  # KB vector store — chunks, embeddings, retrieval
+│   ├── fattureincloud.js      # SDI e-invoicing bridge (Italian fiscal)
+│   ├── keys.js                # API key / dashboard token generation
+│   ├── scripts/
+│   │   └── setup-stripe.js    # idempotent Stripe products + prices setup
 │   └── routes/
 │       ├── livekit.js         # token + dispatch
-│       ├── checkout.js        # Stripe sessions
+│       ├── session.js         # quota-gated session start/end
+│       ├── checkout.js        # Stripe sessions (subscriptions + packs)
 │       ├── webhook.js         # Stripe webhooks
+│       ├── webhook-livekit.js # LiveKit room_finished → quota consume
 │       └── api.js             # dashboard + chat fallback + TTS proxy
 ├── start-navi.ps1             # spawns server + agent (Windows)
 └── index.html
@@ -175,7 +188,7 @@ navi/
 3. **Process** — 3 steps: Learn → Speak → Guide
 4. **Product** — 6 vinyl color pickers (changes hero, widget, demo mockup live)
 5. **Demo** — fake browser with widget mockup
-6. **Pricing** — Free / Starter / Growth
+6. **Pricing** — Free / Starter / Business / Agency
 7. **Marquee** — fictional client logos
 8. **Footer drawer** — pull-up panel with feedback form
 

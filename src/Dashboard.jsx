@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ── Persistence ───────────────────────────────────────────────────────────────
@@ -14,22 +14,28 @@ const useStored = (key, def) => {
 // ── Plans ─────────────────────────────────────────────────────────────────────
 const PLANS = {
   free: {
-    label: 'Free', price: '$0', color: '#606060',
-    minuteMax: 100, minuteUnit: 'total',
+    label: 'Free', price: '€0', color: '#606060',
+    sessionMax: 50, sessionUnit: '/mo',
     agents: 1, pages: 50, lang: '1',
-    f: { analytics: false, widget: false, leads: false, plugins: false, watermark: true },
+    f: { analytics: false, widget: false, leads: false, plugins: false, watermark: true, whitelabel: false, multisite: false, packs: false },
   },
   starter: {
-    label: 'Starter', price: '$79/mo', color: '#4a7fff',
-    minuteMax: 800, minuteUnit: '/mo',
+    label: 'Starter', price: '€49/mo', color: '#4a7fff',
+    sessionMax: 200, sessionUnit: '/mo',
     agents: 1, pages: 500, lang: '30+',
-    f: { analytics: true, widget: true, leads: true, plugins: false, watermark: false },
+    f: { analytics: true, widget: true, leads: true, plugins: false, watermark: false, whitelabel: false, multisite: false, packs: false },
   },
-  growth: {
-    label: 'Growth', price: '$299/mo', color: '#3dc45a',
-    minuteMax: 5000, minuteUnit: '/mo',
+  business: {
+    label: 'Business', price: '€99/mo', color: '#3dc45a',
+    sessionMax: 600, sessionUnit: '/mo',
     agents: 3, pages: 2000, lang: '30+',
-    f: { analytics: true, widget: true, leads: true, plugins: true, watermark: false },
+    f: { analytics: true, widget: true, leads: true, plugins: true, watermark: false, whitelabel: false, multisite: true, packs: false },
+  },
+  agency: {
+    label: 'Agency', price: '€199/mo', color: '#c47dff',
+    sessionMax: 1500, sessionUnit: '/mo',
+    agents: 10, pages: 10000, lang: '30+',
+    f: { analytics: true, widget: true, leads: true, plugins: true, watermark: false, whitelabel: true, multisite: true, packs: true },
   },
 };
 
@@ -43,15 +49,6 @@ const VINYLS = [
   { src: '/vinile-viola.png',       id: 'violet',   label: 'Violet'   },
 ];
 
-// ── Mock activity (replace with real API when backend exists) ─────────────────
-const RECENT = [
-  { id: 1, t: '2m',  u: 'Visitor #4821', m: 'How much does Navi cost?',          p: '/pricing', lead: true  },
-  { id: 2, t: '11m', u: 'Visitor #4820', m: 'Can I try it for free?',            p: '/',        lead: false },
-  { id: 3, t: '34m', u: 'Visitor #4819', m: 'How many languages are supported?', p: '/product', lead: false },
-  { id: 4, t: '1h',  u: 'Marco R.',      m: 'I want Navi on my Shopify store',   p: '/pricing', lead: true  },
-  { id: 5, t: '2h',  u: 'Visitor #4817', m: 'What is the response latency?',     p: '/product', lead: false },
-];
-
 const PAGES_DATA = [
   { url: '/pricing',    visits: 342,  q: 89,  priority: 'high',   intent: 'Convert'   },
   { url: '/',           visits: 1204, q: 156, priority: 'medium', intent: 'Awareness' },
@@ -59,18 +56,6 @@ const PAGES_DATA = [
   { url: '/demo',       visits: 445,  q: 67,  priority: 'low',    intent: 'Demo'      },
   { url: '/howitworks', visits: 298,  q: 44,  priority: 'low',    intent: 'Educate'   },
 ];
-
-const TOP_Q = [
-  { q: 'How much does Navi cost?',         n: 89 },
-  { q: 'Which languages are supported?',   n: 67 },
-  { q: 'How do I install on my site?',     n: 54 },
-  { q: 'What is the response latency?',    n: 41 },
-  { q: 'Can I customize the voice?',       n: 38 },
-  { q: 'Does it work with WordPress?',     n: 29 },
-];
-
-const WEEK = [12, 19, 8, 24, 31, 28, 17];
-const WLABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const PLATFORMS = [
   { id: 'shopify',     label: 'Shopify',      s: 'available' },
@@ -133,7 +118,7 @@ const Tag = ({ children }) => (
   <span className="text-[9px] font-mono tracking-[0.22em] uppercase text-white/30 block mb-2">{children}</span>
 );
 
-const LockOverlay = ({ req = 'Starter' }) => (
+const LockOverlay = ({ req = 'Agency' }) => (
   <div className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center z-10"
     style={{ background: 'rgba(6,6,10,0.88)', backdropFilter: 'blur(8px)' }}>
     <div className="w-10 h-10 rounded-full flex items-center justify-center mb-3"
@@ -145,7 +130,7 @@ const LockOverlay = ({ req = 'Starter' }) => (
       </svg>
     </div>
     <p className="text-[10px] font-mono text-white/30 mb-3">Requires {req}</p>
-    <a href="?plan=growth" className="text-[10px] font-mono px-4 py-1.5 rounded-full transition-all"
+    <a href={`?plan=${req.toLowerCase()}`} className="text-[10px] font-mono px-4 py-1.5 rounded-full transition-all"
       style={{ background: 'rgba(74,127,255,0.15)', border: '1px solid rgba(74,127,255,0.3)', color: 'rgba(130,180,255,0.9)' }}>
       Upgrade →
     </a>
@@ -235,15 +220,76 @@ const ErrorScreen = ({ message }) => (
 
 // ── PAGES ─────────────────────────────────────────────────────────────────────
 
-// Overview
-const OverviewPage = ({ planKey, plan, agentOn, setAgentOn, vinyl, apiKey, minuteUsed, analytics, recent }) => {
-  const [tab, setTab] = useState('Script tag');
-  const [copied, setCopied] = useState(false);
-  const pct = Math.min(100, Math.round(((minuteUsed ?? 0) / plan.minuteMax) * 100));
+// Step 0 — detects whether widget.js has pinged in from the live site.
+const WidgetDetector = ({ authHeader }) => {
+  const [status, setStatus] = useState(null);
+  const [checking, setChecking] = useState(true);
 
-  const embedCode = tab === 'Script tag'
-    ? `<script src="https://cdn.navi.ai/widget.js" data-key="${apiKey}" data-color="${vinyl.id}" defer></script>`
-    : `npm install @navi-ai/widget`;
+  const check = () => {
+    setChecking(true);
+    fetch(`${BACKEND}/api/widget/status`, { headers: authHeader })
+      .then(r => (r.ok ? r.json() : null))
+      .then(s => { setStatus(s); setChecking(false); })
+      .catch(() => setChecking(false));
+  };
+
+  useEffect(() => {
+    check();
+    // Poll until detected, then stop.
+    const id = setInterval(() => {
+      setStatus(prev => {
+        if (prev?.installed) { clearInterval(id); return prev; }
+        check();
+        return prev;
+      });
+    }, 8000);
+    return () => clearInterval(id);
+  }, []);  
+
+  const installed = status?.installed;
+  const ago = (() => {
+    if (!status?.last_seen) return '';
+    const s = Math.floor(Date.now() / 1000 - status.last_seen);
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  })();
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between mb-2">
+        <Tag>Step 0 — Widget detection</Tag>
+        <button onClick={check}
+          className="text-[9px] font-mono uppercase tracking-widest px-2.5 py-1 rounded-md transition-all"
+          style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)' }}>
+          {checking ? 'Checking…' : 'Re-check'}
+        </button>
+      </div>
+      <div className="flex items-center gap-3">
+        <motion.div className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+          style={{ background: installed ? '#3dc45a' : '#febc2e' }}
+          animate={installed ? { scale: [1, 1.5, 1], opacity: [1, 0.5, 1] } : {}}
+          transition={{ duration: 2, repeat: Infinity }} />
+        <span className="text-[13px] text-white/70">
+          {installed
+            ? <>✓ Live on <span className="text-white font-medium">{status.site_url || 'your site'}</span></>
+            : 'Not detected yet — paste the snippet before </body> and open your site once.'}
+        </span>
+      </div>
+      {installed && ago && (
+        <p className="text-[10px] font-mono text-white/25 mt-2">Last ping {ago}</p>
+      )}
+    </Card>
+  );
+};
+
+// Overview
+const OverviewPage = ({ plan, agentOn, setAgentOn, apiKey, minuteUsed, analytics, recent, authHeader, user }) => {
+  const [copied, setCopied] = useState(false);
+
+  // Script tag is the only install method — widget config is server-driven.
+  const embedCode = `<script src="${BACKEND}/widget.js" data-key="${apiKey}" defer></script>`;
 
   const copy = () => navigator.clipboard.writeText(embedCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2200); });
 
@@ -268,40 +314,19 @@ const OverviewPage = ({ planKey, plan, agentOn, setAgentOn, vinyl, apiKey, minut
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mb-3">
-          {['Script tag', 'npm'].map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`text-[9px] font-mono tracking-widest uppercase px-3 py-1 rounded-full transition-all ${tab === t ? 'bg-white/10 text-white/80' : 'text-white/30 hover:text-white/50'}`}>
-              {t}
-            </button>
-          ))}
-        </div>
-
-        {/* Code block */}
+        {/* Code block — paste before </body> */}
+        <p className="text-[10px] font-mono text-white/30 mb-2">Paste before &lt;/body&gt; on your site</p>
         <div className="flex items-center gap-3 px-4 py-3.5 rounded-xl mb-4"
           style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.07)' }}>
           <span className="text-white/15 font-mono text-xs select-none flex-shrink-0">$</span>
           <code className="font-mono text-[11px] text-white/60 flex-1 min-w-0 break-all leading-relaxed">
-            {tab === 'Script tag' ? (
-              <>
-                <span style={{ color: '#7db3ff' }}>{'<script'}</span>
-                <span style={{ color: 'rgba(255,255,255,0.3)' }}> src=</span>
-                <span style={{ color: '#7dde8a' }}>"https://cdn.navi.ai/widget.js"</span>
-                <br />
-                <span style={{ color: 'rgba(255,255,255,0.3)' }}>{'  '}data-key=</span>
-                <span style={{ color: '#7dde8a' }}>"{apiKey}"</span>
-                <br />
-                <span style={{ color: 'rgba(255,255,255,0.3)' }}>{'  '}data-color=</span>
-                <span style={{ color: '#e8d080' }}>"{vinyl.id}"</span>
-                <span style={{ color: '#7db3ff' }}> defer{'></script>'}</span>
-              </>
-            ) : (
-              <>
-                <span style={{ color: 'rgba(255,255,255,0.3)' }}>npm install </span>
-                <span style={{ color: '#7dde8a' }}>@navi-ai/widget</span>
-              </>
-            )}
+            <span style={{ color: '#7db3ff' }}>{'<script'}</span>
+            <span style={{ color: 'rgba(255,255,255,0.3)' }}> src=</span>
+            <span style={{ color: '#7dde8a' }}>"{BACKEND}/widget.js"</span>
+            <br />
+            <span style={{ color: 'rgba(255,255,255,0.3)' }}>{'  '}data-key=</span>
+            <span style={{ color: '#7dde8a' }}>"{apiKey}"</span>
+            <span style={{ color: '#7db3ff' }}> defer{'></script>'}</span>
           </code>
           <motion.button onClick={copy} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
             className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-mono uppercase tracking-widest border transition-all"
@@ -319,19 +344,32 @@ const OverviewPage = ({ planKey, plan, agentOn, setAgentOn, vinyl, apiKey, minut
             style={{ background: 'rgba(61,196,90,0.1)', color: '#3dc45a' }}>live</span>
         </div>
 
-        {/* Minutes */}
-        <div>
-          <div className="flex justify-between mb-1.5">
-            <span className="text-[9px] font-mono text-white/25">{(minuteUsed ?? 0).toLocaleString()} / {plan.minuteMax.toLocaleString()} min {plan.minuteUnit}</span>
-            <span className="text-[9px] font-mono text-white/25">{pct}%</span>
-          </div>
-          <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.07)' }}>
-            <motion.div className="h-full rounded-full"
-              initial={{ width: 0 }} animate={{ width: `${pct}%` }}
-              transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
-              style={{ background: pct > 80 ? '#ff5f57' : pct > 60 ? '#febc2e' : '#3dc45a' }} />
-          </div>
-        </div>
+        {/* Session quota */}
+        {(() => {
+          const q = user?.quota ?? { used: minuteUsed ?? 0, limit: plan.sessionMax, bonus: 0, remaining: plan.sessionMax };
+          const qpct = Math.min(100, Math.round((q.used / Math.max(q.limit, 1)) * 100));
+          return (
+            <div>
+              <div className="flex justify-between mb-1.5">
+                <span className="text-[9px] font-mono text-white/25">
+                  {q.used.toLocaleString()} / {q.limit.toLocaleString()} sessions
+                  {q.bonus > 0 && <span style={{ color: '#3dc45a' }}> +{q.bonus} bonus</span>}
+                </span>
+                <span className="text-[9px] font-mono text-white/25">{qpct}%</span>
+              </div>
+              <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.07)' }}>
+                <motion.div className="h-full rounded-full"
+                  initial={{ width: 0 }} animate={{ width: `${qpct}%` }}
+                  transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
+                  style={{ background: qpct > 80 ? '#ff5f57' : qpct > 60 ? '#febc2e' : '#3dc45a' }} />
+              </div>
+              <div className="flex items-center justify-between mt-2.5">
+                <span className="text-[9px] font-mono text-white/25">{q.remaining.toLocaleString()} sessions left this cycle</span>
+                <PackBuyButton authHeader={authHeader} />
+              </div>
+            </div>
+          );
+        })()}
 
         {plan.f.watermark && (
           <div className="mt-4 flex items-center gap-2 px-3 py-2 rounded-lg" style={{ background: 'rgba(254,188,46,0.06)', border: '1px solid rgba(254,188,46,0.15)' }}>
@@ -343,6 +381,12 @@ const OverviewPage = ({ planKey, plan, agentOn, setAgentOn, vinyl, apiKey, minut
           </div>
         )}
       </Card>
+
+      {/* Step 0 — widget detection */}
+      <WidgetDetector authHeader={authHeader} />
+
+      {/* Knowledge base — re-crawl */}
+      <KBCard user={user} authHeader={authHeader} />
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3">
@@ -394,7 +438,7 @@ const OverviewPage = ({ planKey, plan, agentOn, setAgentOn, vinyl, apiKey, minut
 };
 
 // Customize
-const CustomizePage = ({ plan, vinyl, setVinyl, agentOn }) => {
+const CustomizePage = ({ plan, planKey, vinyl, setVinyl, agentOn, user, patchMe, authHeader }) => {
   const [proactive, setProactive] = useStored('proactive', true);
   const [proactiveDelay, setProactiveDelay] = useStored('proactiveDelay', 120);
   const [sessionMem, setSessionMem] = useStored('sessionMem', true);
@@ -466,6 +510,11 @@ const CustomizePage = ({ plan, vinyl, setVinyl, agentOn }) => {
           <WidgetPreview vinyl={vinyl} agentOn={agentOn} />
         </div>
       </Card>
+
+      {/* Voice + language + extra context (server-backed) */}
+      <VoicePicker user={user} patchMe={patchMe} authHeader={authHeader} />
+      <LangPicker user={user} planKey={planKey} patchMe={patchMe} authHeader={authHeader} />
+      <ExtraContextCard user={user} patchMe={patchMe} />
 
       {/* Appearance settings */}
       <div className="relative">
@@ -598,8 +647,29 @@ const CustomizePage = ({ plan, vinyl, setVinyl, agentOn }) => {
 };
 
 // Analytics
-const AnalyticsPage = ({ plan, analytics }) => {
+const AnalyticsPage = ({ plan, analytics, token }) => {
   const locked = !plan.f.analytics;
+  const visitors = analytics?.visitors;
+  const margin = analytics?.margin;
+  const eur = (cents) => `€${((cents ?? 0) / 100).toFixed(2)}`;
+  const Bar = ({ rows }) => {
+    const max = Math.max(...(rows ?? []).map(r => r.n), 1);
+    return (
+      <div className="space-y-1.5">
+        {(rows ?? []).length === 0
+          ? <p className="text-[11px] font-mono text-white/20 py-2 text-center">No data yet</p>
+          : rows.map(r => (
+            <div key={r.label} className="flex items-center gap-2">
+              <span className="text-[10px] font-mono text-white/45 w-20 truncate">{r.label}</span>
+              <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                <div className="h-full rounded-full" style={{ width: `${(r.n / max) * 100}%`, background: 'rgba(74,127,255,0.55)' }} />
+              </div>
+              <span className="text-[10px] font-mono text-white/40 w-6 text-right">{r.n}</span>
+            </div>
+          ))}
+      </div>
+    );
+  };
   const weekData = buildWeekData(analytics?.week);
   const maxW = Math.max(...weekData.map(d => d.count), 1);
 
@@ -667,7 +737,14 @@ const AnalyticsPage = ({ plan, analytics }) => {
       {/* Leads */}
       <div className="relative">
         <Card className="p-5">
-          <Tag>Leads this week</Tag>
+          <div className="flex items-center justify-between">
+            <Tag>Leads captured</Tag>
+            <a href={`${BACKEND}/api/leads.csv?token=${encodeURIComponent(token)}`}
+              className="text-[9px] font-mono uppercase tracking-widest px-3 py-1.5 rounded-md transition-all"
+              style={{ background: 'rgba(61,196,90,0.12)', border: '1px solid rgba(61,196,90,0.3)', color: '#3dc45a' }}>
+              ↓ Export CSV
+            </a>
+          </div>
           <div className="flex items-center gap-3 mt-2 py-3">
             <div className="text-3xl font-light" style={{ color: '#3dc45a' }}>{analytics?.leads ?? '—'}</div>
             <div>
@@ -677,6 +754,53 @@ const AnalyticsPage = ({ plan, analytics }) => {
           </div>
         </Card>
         {!plan.f.leads && <LockOverlay />}
+      </div>
+
+      {/* Visitor analytics */}
+      <div className="relative">
+        <Card className="p-5">
+          <Tag>Visitors</Tag>
+          <div className="grid grid-cols-3 gap-3 mt-3 mb-5">
+            {[
+              { label: 'Total', value: visitors?.total ?? 0, accent: 'white' },
+              { label: 'Unique', value: visitors?.unique ?? 0, accent: '#4a7fff' },
+              { label: 'Returning', value: visitors?.returning ?? 0, accent: '#3dc45a' },
+            ].map(s => (
+              <div key={s.label} className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div className="text-2xl font-light" style={{ color: s.accent }}>{s.value}</div>
+                <div className="text-[9px] font-mono text-white/25 mt-0.5">{s.label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div><p className="text-[9px] font-mono text-white/25 mb-2 uppercase tracking-wide">Country</p><Bar rows={visitors?.byCountry} /></div>
+            <div><p className="text-[9px] font-mono text-white/25 mb-2 uppercase tracking-wide">Device</p><Bar rows={visitors?.byDevice} /></div>
+            <div><p className="text-[9px] font-mono text-white/25 mb-2 uppercase tracking-wide">Browser</p><Bar rows={visitors?.byBrowser} /></div>
+          </div>
+        </Card>
+        {locked && <LockOverlay />}
+      </div>
+
+      {/* Cost / margin */}
+      <div className="relative">
+        <Card className="p-5">
+          <Tag>Margin — current cycle</Tag>
+          <div className="grid grid-cols-4 gap-3 mt-3">
+            {[
+              { label: 'Revenue', value: eur(margin?.revenue_cents), accent: 'white' },
+              { label: 'API cost', value: eur(margin?.cost_cents), accent: '#febc2e' },
+              { label: 'Margin', value: eur(margin?.margin_cents), accent: (margin?.margin_cents ?? 0) >= 0 ? '#3dc45a' : '#ff5f57' },
+              { label: 'Margin %', value: margin?.margin_pct != null ? `${margin.margin_pct}%` : '—', accent: '#4a7fff' },
+            ].map(s => (
+              <div key={s.label} className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div className="text-lg font-light" style={{ color: s.accent }}>{s.value}</div>
+                <div className="text-[9px] font-mono text-white/25 mt-0.5">{s.label}</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[9px] font-mono text-white/20 mt-3">{margin?.sessions ?? 0} voice sessions this cycle · cost ≈ €0.08/session</p>
+        </Card>
+        {locked && <LockOverlay />}
       </div>
     </div>
   );
@@ -743,13 +867,13 @@ const SettingsPage = ({ plan, planKey, apiKey, user }) => {
           <div>
             <p className="text-base font-semibold text-white">{plan.label}</p>
             <p className="text-[11px] font-mono text-white/30 mt-0.5">
-              {plan.minuteMax.toLocaleString()} min{plan.minuteUnit} · {plan.agents} agent{plan.agents > 1 ? 's' : ''} · {plan.pages.toLocaleString()} pages
+              {plan.sessionMax.toLocaleString()} sess{plan.sessionUnit} · {plan.agents} agent{plan.agents > 1 ? 's' : ''} · {plan.pages.toLocaleString()} pages
             </p>
             {user?.email && <p className="text-[9px] font-mono text-white/20 mt-1">{user.email}</p>}
           </div>
           <a href="/" className="text-[11px] font-mono px-4 py-2 rounded-full transition-all"
             style={{ background: 'rgba(74,127,255,0.12)', border: '1px solid rgba(74,127,255,0.3)', color: 'rgba(130,180,255,0.8)' }}>
-            {planKey === 'growth' ? 'Manage' : 'Upgrade →'}
+            {planKey === 'agency' ? 'Manage' : 'Upgrade →'}
           </a>
         </div>
       </Card>
@@ -776,18 +900,308 @@ const SettingsPage = ({ plan, planKey, apiKey, user }) => {
             ))}
           </div>
         </Card>
-        {!plan.f.plugins && <LockOverlay req="Growth" />}
+        {!plan.f.plugins && <LockOverlay req="Business" />}
       </div>
     </div>
   );
 };
 
+// ── Transcripts ───────────────────────────────────────────────────────────────
+const TranscriptsPage = ({ authHeader }) => {
+  const [q, setQ] = useState('');
+  const [rows, setRows] = useState([]);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const load = (query, pg) => {
+    setLoading(true);
+    fetch(`${BACKEND}/api/conversations?q=${encodeURIComponent(query)}&page=${pg}`, { headers: authHeader })
+      .then(r => (r.ok ? r.json() : { rows: [], hasMore: false, page: 0 }))
+      .then(d => { setRows(d.rows ?? []); setHasMore(!!d.hasMore); setPage(d.page ?? 0); setLoading(false); })
+      .catch(() => setLoading(false));
+  };
+
+  // Debounced search on query change.
+  useEffect(() => {
+    const t = setTimeout(() => load(q, 0), 300);
+    return () => clearTimeout(t);
+  }, [q]);  
+
+  const fmt = (ts) => new Date((ts ?? 0) * 1000).toLocaleString();
+
+  return (
+    <div className="space-y-5">
+      <Card className="p-5">
+        <Tag>Transcript search</Tag>
+        <input value={q} onChange={e => setQ(e.target.value)}
+          placeholder="Search conversations — questions or replies…"
+          className="w-full mt-2 text-[12px] font-mono text-white/70 bg-transparent border rounded-xl px-3 py-2.5 outline-none transition-colors placeholder:text-white/20"
+          style={{ borderColor: 'rgba(255,255,255,0.09)' }}
+          onFocus={e => e.target.style.borderColor = 'rgba(74,127,255,0.5)'}
+          onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.09)'} />
+      </Card>
+
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-2">
+          <Tag>{q ? `Results for "${q}"` : 'All conversations'}</Tag>
+          <span className="text-[9px] font-mono text-white/25">{rows.length} shown</span>
+        </div>
+        {loading ? (
+          <p className="text-[11px] font-mono text-white/20 py-6 text-center">Loading…</p>
+        ) : rows.length === 0 ? (
+          <p className="text-[11px] font-mono text-white/20 py-6 text-center">No conversations found.</p>
+        ) : (
+          <div className="space-y-3">
+            {rows.map(c => (
+              <div key={c.id} className="py-2.5 border-b last:border-0" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-[9px] font-mono text-white/25">{c.visitor_id ? `Visitor ${c.visitor_id.slice(0, 8)}` : 'Visitor'}</span>
+                  {c.is_lead ? <span className="text-[8px] font-mono px-1.5 py-0.5 rounded" style={{ background: 'rgba(61,196,90,0.12)', color: '#3dc45a' }}>lead</span> : null}
+                  <span className="ml-auto text-[9px] font-mono text-white/20">{fmt(c.created_at)}</span>
+                </div>
+                <p className="text-[12px] text-white/75 leading-snug"><span className="text-white/30">Q:</span> {c.message}</p>
+                <p className="text-[12px] text-white/45 leading-snug mt-0.5"><span className="text-white/25">A:</span> {c.reply}</p>
+                {c.page_url ? <code className="text-[9px] font-mono text-white/20">{c.page_url}</code> : null}
+              </div>
+            ))}
+          </div>
+        )}
+        {(page > 0 || hasMore) && !loading && (
+          <div className="flex items-center justify-between mt-4">
+            <button disabled={page === 0} onClick={() => load(q, page - 1)}
+              className="text-[10px] font-mono px-3 py-1.5 rounded-lg transition-all disabled:opacity-25"
+              style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)' }}>← Prev</button>
+            <span className="text-[9px] font-mono text-white/25">Page {page + 1}</span>
+            <button disabled={!hasMore} onClick={() => load(q, page + 1)}
+              className="text-[10px] font-mono px-3 py-1.5 rounded-lg transition-all disabled:opacity-25"
+              style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.5)' }}>Next →</button>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+};
+
+// ── Voice picker ──────────────────────────────────────────────────────────────
+const VoicePicker = ({ user, patchMe, authHeader }) => {
+  const [voices, setVoices] = useState([]);
+  const [sel, setSel] = useState(user.voice || 'onyx');
+  const [playing, setPlaying] = useState(null);
+
+  useEffect(() => {
+    fetch(`${BACKEND}/api/voices`, { headers: authHeader })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => d && setVoices(d.voices))
+      .catch(() => {});
+  }, []);  
+
+  const pick = (id) => { setSel(id); patchMe({ voice: id }); };
+
+  const preview = (id) => {
+    if (playing) return;
+    setPlaying(id);
+    fetch(`${BACKEND}/api/voice/preview`, {
+      method: 'POST',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voice: id }),
+    })
+      .then(r => (r.ok ? r.blob() : Promise.reject()))
+      .then(b => {
+        const a = new Audio(URL.createObjectURL(b));
+        a.onended = () => setPlaying(null);
+        a.onerror = () => setPlaying(null);
+        a.play();
+      })
+      .catch(() => setPlaying(null));
+  };
+
+  return (
+    <Card className="p-5">
+      <Tag>Agent voice</Tag>
+      <p className="text-[10px] text-white/30 mb-4">Pick the voice your visitors hear. Tap ▶ to preview.</p>
+      <div className="grid grid-cols-2 gap-2">
+        {voices.map(v => (
+          <div key={v.id}
+            className="flex items-center gap-2 p-2.5 rounded-xl cursor-pointer transition-all"
+            onClick={() => pick(v.id)}
+            style={{
+              background: sel === v.id ? 'rgba(74,127,255,0.1)' : 'rgba(255,255,255,0.03)',
+              border: `1px solid ${sel === v.id ? 'rgba(74,127,255,0.4)' : 'rgba(255,255,255,0.06)'}`,
+            }}>
+            <button onClick={e => { e.stopPropagation(); preview(v.id); }}
+              className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-[10px]"
+              style={{ background: 'rgba(255,255,255,0.08)', color: playing === v.id ? '#4a7fff' : 'rgba(255,255,255,0.6)' }}>
+              {playing === v.id ? '♪' : '▶'}
+            </button>
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium text-white/75">{v.label}</p>
+              <p className="text-[9px] text-white/30 truncate">{v.desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+};
+
+// ── Language picker ───────────────────────────────────────────────────────────
+const LangPicker = ({ user, planKey, patchMe, authHeader }) => {
+  const [langs, setLangs] = useState([]);
+  const [lang, setLang] = useState(user.lang || 'en');
+  const [auto, setAuto] = useState(!!user.lang_auto);
+  const paid = planKey !== 'free';
+
+  useEffect(() => {
+    fetch(`${BACKEND}/api/voices`, { headers: authHeader })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => d && setLangs(d.languages))
+      .catch(() => {});
+  }, []);  
+
+  const setLanguage = (l) => { setLang(l); patchMe({ lang: l }); };
+  const setAutoSwitch = (v) => { if (!paid) return; setAuto(v); patchMe({ lang_auto: v ? 1 : 0 }); };
+
+  return (
+    <Card className="p-5">
+      <Tag>Language</Tag>
+      <p className="text-[10px] text-white/30 mb-4">Default language the agent speaks.</p>
+      <select value={lang} onChange={e => setLanguage(e.target.value)}
+        className="w-full text-[12px] font-mono text-white/70 border rounded-xl px-3 py-2 outline-none"
+        style={{ background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.09)' }}>
+        {langs.map(l => <option key={l.id} value={l.id} style={{ background: '#1a1a24' }}>{l.label}</option>)}
+      </select>
+      <div className="flex items-start justify-between gap-4 mt-4 pt-3 border-t" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+        <div>
+          <p className="text-[12px] font-medium text-white/75">Auto-switch language</p>
+          <p className="text-[10px] text-white/30 mt-0.5">
+            {paid ? 'Detect and follow the visitor’s language live' : 'Paid plans only — upgrade to enable'}
+          </p>
+        </div>
+        <Toggle value={auto} onChange={setAutoSwitch} disabled={!paid} />
+      </div>
+    </Card>
+  );
+};
+
+// ── Extra context ─────────────────────────────────────────────────────────────
+const ExtraContextCard = ({ user, patchMe }) => {
+  const [text, setText] = useState(user.extra_context || '');
+  const [saved, setSaved] = useState(false);
+
+  const save = () => {
+    patchMe({ extra_context: text });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <Card className="p-5">
+      <Tag>Extra context</Tag>
+      <p className="text-[10px] text-white/30 mb-3">
+        Facts the crawler can’t see — promotions, policies, tone notes. Injected into every agent reply.
+      </p>
+      <textarea value={text} onChange={e => setText(e.target.value)} rows={5}
+        placeholder="e.g. We offer free shipping over €50. Support hours 9–18 CET. Always mention the spring sale."
+        className="w-full text-[12px] text-white/70 bg-transparent border rounded-xl px-3 py-2.5 outline-none resize-y transition-colors placeholder:text-white/20"
+        style={{ borderColor: 'rgba(255,255,255,0.09)' }}
+        onFocus={e => e.target.style.borderColor = 'rgba(74,127,255,0.5)'}
+        onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.09)'} />
+      <button onClick={save}
+        className="mt-3 text-[10px] font-mono uppercase tracking-widest px-4 py-2 rounded-lg transition-all"
+        style={{ background: saved ? 'rgba(61,196,90,0.15)' : 'rgba(74,127,255,0.12)', border: `1px solid ${saved ? 'rgba(61,196,90,0.4)' : 'rgba(74,127,255,0.3)'}`, color: saved ? '#3dc45a' : 'rgba(130,180,255,0.85)' }}>
+        {saved ? '✓ Saved' : 'Save context'}
+      </button>
+    </Card>
+  );
+};
+
+// ── Knowledge base card (re-crawl) ────────────────────────────────────────────
+const KBCard = ({ user, authHeader }) => {
+  const [status, setStatus] = useState({ status: user.kb_status || 'none', pages: user.kb_pages || 0, chunks: 0 });
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => {
+    fetch(`${BACKEND}/api/kb/status`, { headers: authHeader })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => d && setStatus(d))
+      .catch(() => {});
+  };
+  useEffect(() => { refresh(); }, []);  
+
+  // Poll while a crawl is running.
+  useEffect(() => {
+    if (status.status !== 'crawling') return;
+    const id = setInterval(refresh, 4000);
+    return () => clearInterval(id);
+  }, [status.status]);  
+
+  const recrawl = () => {
+    if (busy || status.status === 'crawling') return;
+    setBusy(true);
+    fetch(`${BACKEND}/api/kb/crawl`, { method: 'POST', headers: authHeader })
+      .then(r => r.json())
+      .then(() => { setStatus(s => ({ ...s, status: 'crawling' })); setBusy(false); })
+      .catch(() => setBusy(false));
+  };
+
+  const COLORS = { ready: '#3dc45a', crawling: '#febc2e', error: '#ff5f57', none: 'rgba(255,255,255,0.3)' };
+  const LABELS = { ready: 'Knowledge base ready', crawling: 'Crawling site…', error: 'Crawl failed', none: 'Not crawled yet' };
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between mb-2">
+        <Tag>Knowledge base</Tag>
+        <button onClick={recrawl} disabled={status.status === 'crawling' || busy}
+          className="text-[9px] font-mono uppercase tracking-widest px-3 py-1.5 rounded-md transition-all disabled:opacity-40"
+          style={{ background: 'rgba(74,127,255,0.12)', border: '1px solid rgba(74,127,255,0.3)', color: 'rgba(130,180,255,0.85)' }}>
+          {status.status === 'crawling' ? 'Crawling…' : 'Re-crawl'}
+        </button>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: COLORS[status.status] ?? COLORS.none }} />
+        <span className="text-[13px] text-white/70">{LABELS[status.status] ?? 'Unknown'}</span>
+        {status.status === 'ready' && (
+          <span className="ml-auto text-[10px] font-mono text-white/30">{status.pages} pages · {status.chunks} chunks</span>
+        )}
+      </div>
+      {!user.site_url && (
+        <p className="text-[10px] font-mono text-white/25 mt-2">Set your site URL in Settings to enable crawling.</p>
+      )}
+    </Card>
+  );
+};
+
+// ── Session pack purchase ─────────────────────────────────────────────────────
+const PackBuyButton = ({ authHeader }) => {
+  const [busy, setBusy] = useState(false);
+  const buy = () => {
+    setBusy(true);
+    fetch(`${BACKEND}/api/checkout/pack`, {
+      method: 'POST',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ packs: 1 }),
+    })
+      .then(r => r.json())
+      .then(d => { if (d.redirect) window.location.href = d.redirect; else setBusy(false); })
+      .catch(() => setBusy(false));
+  };
+  return (
+    <button onClick={buy} disabled={busy}
+      className="text-[10px] font-mono uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all disabled:opacity-50"
+      style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.55)' }}>
+      {busy ? 'Redirecting…' : '+ Buy 100 sessions'}
+    </button>
+  );
+};
+
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'overview',  label: 'Overview'  },
-  { id: 'customize', label: 'Customize' },
-  { id: 'analytics', label: 'Analytics', gate: 'analytics' },
-  { id: 'settings',  label: 'Settings'  },
+  { id: 'overview',    label: 'Overview'    },
+  { id: 'customize',   label: 'Customize'   },
+  { id: 'transcripts', label: 'Transcripts' },
+  { id: 'analytics',   label: 'Analytics', gate: 'analytics' },
+  { id: 'settings',    label: 'Settings'    },
 ];
 
 const Sidebar = ({ planKey, plan, page, onNav }) => (
@@ -834,8 +1248,8 @@ const Sidebar = ({ planKey, plan, page, onNav }) => (
 
     {/* Footer */}
     <div className="p-3 border-t space-y-1.5" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-      {planKey !== 'growth' && (
-        <a href="?plan=growth" className="flex items-center justify-center w-full py-2 rounded-xl text-[10px] font-mono tracking-widest uppercase transition-all"
+      {planKey !== 'agency' && (
+        <a href={planKey === 'free' ? '?plan=starter' : planKey === 'starter' ? '?plan=business' : '?plan=agency'} className="flex items-center justify-center w-full py-2 rounded-xl text-[10px] font-mono tracking-widest uppercase transition-all"
           style={{ background: 'rgba(74,127,255,0.1)', border: '1px solid rgba(74,127,255,0.25)', color: 'rgba(130,180,255,0.75)' }}>
           Upgrade plan
         </a>
@@ -871,13 +1285,14 @@ const Dashboard = () => {
       fetch(`${BACKEND}/api/me`, { headers: authHeader })
         .then(r => r.ok ? r.json() : r.json().then(d => { throw new Error(d.error ?? 'Authentication failed'); })),
       fetch(`${BACKEND}/api/analytics`, { headers: authHeader }).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`${BACKEND}/api/conversations`, { headers: authHeader }).then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch(`${BACKEND}/api/conversations`, { headers: authHeader }).then(r => r.ok ? r.json() : { rows: [] }).catch(() => ({ rows: [] })),
     ]).then(([u, a, c]) => {
       setUser(u);
       setAgentOnRaw(!!u.agent_enabled);
       setVinylIdRaw(u.vinyl_color ?? 'midnight');
       if (a) setAnalytics(a);
-      setRecent(c);
+      // /api/conversations returns { rows, page, hasMore } — recent wants the array.
+      setRecent(Array.isArray(c) ? c : (c.rows ?? []));
       setLoading(false);
     }).catch(e => { setAuthError(e.message); setLoading(false); });
   }, [token]);
@@ -900,6 +1315,16 @@ const Dashboard = () => {
     }).catch(console.error);
   };
 
+  // Generic settings patch — optimistic local update + PATCH /me.
+  const patchMe = (patch) => {
+    setUser(u => ({ ...u, ...patch }));
+    return fetch(`${BACKEND}/api/me`, {
+      method: 'PATCH',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }).catch(console.error);
+  };
+
   if (loading) return <LoadingScreen />;
   if (authError) return <ErrorScreen message={authError} />;
 
@@ -908,7 +1333,7 @@ const Dashboard = () => {
   const vinyl = vinylById(vinylId);
   const setVinyl = (v) => setVinylId(v.id);
 
-  const TITLES = { overview: 'Overview', customize: 'Customize', analytics: 'Analytics', settings: 'Settings' };
+  const TITLES = { overview: 'Overview', customize: 'Customize', transcripts: 'Transcripts', analytics: 'Analytics', settings: 'Settings' };
 
   return (
     <div className="min-h-screen font-sans text-white" style={{ background: '#06060a' }}>
@@ -929,10 +1354,11 @@ const Dashboard = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
-              {page === 'overview'  && <OverviewPage  planKey={planKey} plan={plan} agentOn={agentOn} setAgentOn={setAgentOn} vinyl={vinyl} apiKey={user.api_key} minuteUsed={user.minute_used} analytics={analytics} recent={recent} />}
-              {page === 'customize' && <CustomizePage plan={plan} vinyl={vinyl} setVinyl={setVinyl} agentOn={agentOn} />}
-              {page === 'analytics' && <AnalyticsPage plan={plan} analytics={analytics} />}
-              {page === 'settings'  && <SettingsPage  plan={plan} planKey={planKey} apiKey={user.api_key} user={user} />}
+              {page === 'overview'    && <OverviewPage    planKey={planKey} plan={plan} agentOn={agentOn} setAgentOn={setAgentOn} vinyl={vinyl} apiKey={user.api_key} minuteUsed={user.minute_used} analytics={analytics} recent={recent} authHeader={authHeader} user={user} />}
+              {page === 'customize'   && <CustomizePage   plan={plan} planKey={planKey} vinyl={vinyl} setVinyl={setVinyl} agentOn={agentOn} user={user} patchMe={patchMe} authHeader={authHeader} />}
+              {page === 'transcripts' && <TranscriptsPage authHeader={authHeader} />}
+              {page === 'analytics'   && <AnalyticsPage   plan={plan} analytics={analytics} token={token} />}
+              {page === 'settings'    && <SettingsPage    plan={plan} planKey={planKey} apiKey={user.api_key} user={user} />}
             </motion.div>
           </AnimatePresence>
         </div>

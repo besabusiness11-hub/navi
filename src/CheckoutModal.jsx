@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 /* ─── site tokens ─────────────────────────────────────── */
 const CYAN = '88,196,236';   // rgba accent
 
 const PLANS = {
-  free:    { label: 'Free',    price: '$0',   sub: '',    desc: '100 min lifetime · 1 agent'  },
-  starter: { label: 'Starter', price: '$79',  sub: '/mo', desc: '800 min/mo · 1 agent'        },
-  growth:  { label: 'Growth',  price: '$299', sub: '/mo', desc: '5,000 min/mo · 3 agents'     },
+  free:     { label: 'Free',     price: '€0',   sub: '',    desc: '50 sessions/mo · 1 agent · renews every month forever' },
+  starter:  { label: 'Starter',  price: '€49',  sub: '/mo', desc: '200 sessions/mo · 1 agent'                              },
+  business: { label: 'Business', price: '€99',  sub: '/mo', desc: '600 sessions/mo · 3 agents · multi-site included'       },
+  agency:   { label: 'Agency',   price: '€199', sub: '/mo', desc: '1,500 sessions/mo · 10 agents · white-label + packs'    },
 };
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
@@ -193,7 +194,7 @@ const CheckoutModal = ({ plan, onClose }) => {
             </h2>
             <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.38)', lineHeight: 1.5 }}>
               {plan === 'free'
-                ? "Your API key will be sent to your email."
+                ? 'Your API key will be sent to your email. Renews every month forever.'
                 : `${p.label} plan · ${p.price}${p.sub} · ${p.desc}`}
             </p>
           </div>
@@ -278,7 +279,11 @@ const CheckoutModal = ({ plan, onClose }) => {
 
           {/* Footer */}
           <div style={{ marginTop: 24, textAlign: 'center' }}>
-            {plan !== 'free' ? (
+            {plan === 'free' ? (
+              <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.22)' }}>
+                No credit card required
+              </p>
+            ) : (
               <p style={{
                 fontSize: 11,
                 color: 'rgba(255,255,255,0.18)',
@@ -292,10 +297,6 @@ const CheckoutModal = ({ plan, onClose }) => {
                     stroke="rgba(255,255,255,0.28)" strokeWidth="1.1" strokeLinecap="round" />
                 </svg>
                 Secured by Stripe · Cancel anytime
-              </p>
-            ) : (
-              <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.22)' }}>
-                No credit card required
               </p>
             )}
           </div>
