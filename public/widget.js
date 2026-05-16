@@ -44,6 +44,7 @@
   let isConnecting = false;
   let remoteAudioEls = [];
   let remoteAudioPlayed = false;
+  let remoteAudioTrackPresent = false;     // agent TTS track subscribed
   let PROACTIVE_DELAY = 120000;             // ms; overridden by config
 
   const AUDIO_CONSTRAINTS = {
@@ -490,6 +491,7 @@
 
       r.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
         if (track.kind !== Track.Kind.Audio) return;
+        remoteAudioTrackPresent = true;
         console.info('[Navi] remote audio track subscribed', {
           source: publication?.source,
           participant: participant?.identity,
@@ -536,7 +538,12 @@
           }
           if (msg.type === 'agent_text' && msg.text) {
             showTranscript(msg.text); setTimeout(hideTranscript, 5000);
-            speakFallback(msg.text);
+            // Voice handled by the LiveKit "roomio_audio" track. speechSynthesis
+            // only as last resort if no remote audio track ever subscribed —
+            // checked after a grace delay so it never talks over real TTS.
+            if (!remoteAudioTrackPresent) {
+              setTimeout(() => { if (!remoteAudioTrackPresent) speakFallback(msg.text); }, 2500);
+            }
           }
           // Navigate → scroll AND contextual highlight.
           if (msg.type === 'navigate' && msg.section) {
@@ -584,6 +591,7 @@
     remoteAudioEls.forEach(el => el.remove());
     remoteAudioEls = [];
     remoteAudioPlayed = false;
+    remoteAudioTrackPresent = false;
     isConnecting = false;
   }
 

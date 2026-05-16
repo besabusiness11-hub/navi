@@ -332,6 +332,10 @@ export default defineAgent({
       } catch (_) {}
     });
 
+    // Mirror the final user transcript to the widget for display only.
+    // Do NOT call generateReply here — AgentSession's STT→LLM→TTS pipeline
+    // already produces the reply on turn end. A manual generateReply fires a
+    // second SpeechHandle that interrupts the first, cutting TTS audio.
     sess.on('user_input_transcribed', async (ev) => {
       if (!ev.isFinal) return;
       const t = ev.transcript ?? '';
@@ -342,13 +346,6 @@ export default defineAgent({
           { reliable: true },
         );
       } catch (_) {}
-      if (t.trim()) {
-        try {
-          sess.generateReply({ userInput: t });
-        } catch (err) {
-          console.warn('[Navi] generateReply from transcript failed:', err?.message ?? err);
-        }
-      }
     });
 
     // ── Data messages from widget ────────────────────────────────────────────
