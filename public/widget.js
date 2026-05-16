@@ -487,20 +487,25 @@
       const r = new Room({ adaptiveStream: true, dynacast: true });
       room = r;
 
-      r.on(RoomEvent.TrackSubscribed, (track) => {
+      r.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
         if (track.kind !== Track.Kind.Audio) return;
+        console.info('[Navi] remote audio track subscribed', {
+          source: publication?.source,
+          participant: participant?.identity,
+        });
         const audioEl = track.attach();
         audioEl.autoplay = true;
         audioEl.playsInline = true;
         audioEl.controls = false;
         audioEl.muted = false;
-        audioEl.style.display = 'none';
-        shadow.appendChild(audioEl);
+        audioEl.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;';
+        document.body.appendChild(audioEl);
         remoteAudioEls.push(audioEl);
-        audioEl.play().catch((err) => {
+        const playAudio = () => audioEl.play().catch((err) => {
           console.warn('[Navi] remote audio autoplay blocked:', err.message);
           showTranscript('Tap the microphone button to enable voice audio.');
         });
+        r.startAudio?.().then(playAudio).catch(playAudio);
         audioEl.addEventListener('play',  () => { if (isOpen) setStatus('speaking'); });
         audioEl.addEventListener('pause', () => { if (isOpen) setStatus('listening'); });
         audioEl.addEventListener('ended', () => { if (isOpen) setStatus('listening'); });
@@ -545,13 +550,15 @@
         } catch (_) {}
       });
 
-      r.on(RoomEvent.Disconnected, () => {
+      r.on(RoomEvent.Disconnected, (reason) => {
+        console.info('[Navi] room disconnected', reason);
         room = null;
         isConnecting = false;
         if (isOpen) closeWidget();
       });
 
       await r.connect(wsUrl, token, { autoSubscribe: true });
+      await r.startAudio?.().catch(err => console.warn('[Navi] startAudio failed:', err.message));
       await r.localParticipant.setMicrophoneEnabled(true, AUDIO_CONSTRAINTS);
       fetch(`${BACKEND}/api/voice-dispatch`, {
         method: 'POST',
@@ -721,6 +728,8 @@
         return;
       }
       const { Track } = LK;
+      await room.startAudio?.().catch(err => console.warn('[Navi] startAudio failed:', err.message));
+      remoteAudioEls.forEach(el => el.play().catch(() => {}));
       const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
       const currentlyOn = pub ? !pub.isMuted : false;
       await room.localParticipant.setMicrophoneEnabled(!currentlyOn, AUDIO_CONSTRAINTS);
