@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log
+*.log
+navi.db
+navi.db-shm
+navi.db-wal
+.env
+Dockerfile
+.dockerignore

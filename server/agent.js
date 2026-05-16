@@ -14,7 +14,14 @@ import * as openai from '@livekit/agents-plugin-openai';
 import * as deepgram from '@livekit/agents-plugin-deepgram';
 import * as silero from '@livekit/agents-plugin-silero';
 import { fileURLToPath } from 'url';
-import { getUserById } from './db.js';
+import { getUserById, getKBChunks, getConversationsByVisitor } from './db.js';
+
+// Shared language map (id → display name).
+const LANG_NAMES = {
+  it: 'Italian', en: 'English', fr: 'French', de: 'German', es: 'Spanish',
+  pt: 'Portuguese', nl: 'Dutch', pl: 'Polish', ru: 'Russian', ar: 'Arabic',
+  zh: 'Mandarin Chinese', ja: 'Japanese', ko: 'Korean', tr: 'Turkish', hi: 'Hindi',
+};
 
 // ─── Site crawler ─────────────────────────────────────────────────────────────
 
@@ -31,7 +38,7 @@ const crawlSite = async (startUrl, maxPages = 30) => {
   const fetchText = async (url) => {
     try {
       const res = await fetch(url, {
-        headers: { 'User-Agent': 'NaviBot/3.0 (+https://navi.so/bot)' },
+        headers: { 'User-Agent': 'NaviBot/3.0 (+https://getnavi.dev/bot)' },
         signal: AbortSignal.timeout(8000),
       });
       if (!res.ok) return null;
@@ -106,10 +113,11 @@ Performance: sub-300ms latency, 98.5% accuracy, 99.9% uptime.
 Languages: 30+, auto-detects. Voices: 60+ curated.
 Integration: ANY CMS — Webflow, WordPress, Shopify, Framer, plain HTML. Single script tag. 5 min setup.
 
-Pricing:
-- Free: $0 — 100 min lifetime, 1 agent
-- Starter: $79/mo — 800 min/mo, 1 agent, analytics, lead notifications
-- Growth: $299/mo — 5,000 min/mo, 3 agents, priority support
+Pricing (sessions, not minutes — agent never disappears mid-month):
+- Free: €0 — 50 sessions/mo, 1 agent, renews every month forever
+- Starter: €49/mo — 200 sessions/mo, 1 agent, analytics, lead notifications
+- Business: €99/mo — 600 sessions/mo, 3 agents, multi-site, plugins, priority support
+- Agency: €199/mo — 1,500 sessions/mo, 10 agents, white-label, session packs available
 
 Lead Capture: name, email, intent, page, full transcript in dashboard. Instant email alert.
 Returning Visitors: Navi remembers across sessions.
@@ -155,27 +163,46 @@ ${NAVI_DEMO_KNOWLEDGE}
 Respond in ${langName}.`;
 };
 
-const buildClientInstructions = async (user, siteContent) => {
+const buildClientInstructions = async (user, siteContent, pastConvos = []) => {
   const siteName = user.name || user.site_url || 'this website';
   const crawledCtx = siteContent
     ? `\n\n═══ SITE KNOWLEDGE BASE — ${user.site_url} ═══\n${siteContent}\n═══════════════════════════════`
     : `\nNote: Site content not yet loaded. Answer from conversation context only.`;
 
+  // Language: pinned when lang_auto is off, otherwise auto-detected.
+  const langName = LANG_NAMES[user.lang] ?? 'English';
+  const langRule = user.lang_auto
+    ? 'LANGUAGES: Detect visitor language from first message and respond in that language.'
+    : `LANGUAGE: ALWAYS respond in ${langName}, regardless of the visitor's language.`;
+
+  // Owner-defined persona + extra context.
+  const personaRule = user.persona
+    ? `\nPERSONA — adopt this tone and character: ${user.persona}` : '';
+  const extraRule = user.extra_context
+    ? `\n\n═══ EXTRA CONTEXT (owner-provided, authoritative) ═══\n${user.extra_context}\n═══════════════════════════════` : '';
+
+  // Returning-visitor memory.
+  const memoryCtx = pastConvos.length
+    ? `\n\n═══ RETURNING VISITOR — prior conversations (most recent first) ═══\n${
+        pastConvos.map(c => `Q: ${c.message}\nA: ${c.reply}`).join('\n')
+      }\nGreet them as a returning visitor; reference past topics naturally, don't repeat yourself.\n═══════════════════════════════`
+    : '';
+
   return `You are Navi — an AI voice agent deployed on ${siteName}, helping real visitors right now.
 
-PERSONALITY: Confident, warm, professional. Represent ${siteName}. Knowledgeable, helpful, engaging.
+PERSONALITY: Confident, warm, professional. Represent ${siteName}. Knowledgeable, helpful, engaging.${personaRule}
 
 VOICE STYLE: Natural speech, contractions, conversational flow. No bullet points. Max 3 sentences per response. End every reply with a relevant follow-up question.
 
 MISSION: Help every visitor find what they need. Answer questions from site knowledge below. Guide to the right page or product. Capture leads naturally.
 
-LANGUAGES: Detect visitor language from first message and respond in that language.
+${langRule}
 NEVER REVEAL: Technical infrastructure, AI model names, API keys, backend details.
 
 NAVIGATION DIRECTIVES — append on FINAL LINE when it matches a real section on the site:
 [NAVIGATE:pricing] [NAVIGATE:product] [NAVIGATE:demo] [NAVIGATE:contact] [NAVIGATE:faq]
 Omit entirely if no real navigation applies.
-${crawledCtx}
+${crawledCtx}${extraRule}${memoryCtx}
 
 Represent ${siteName} with professionalism and warmth.`;
 };
@@ -209,33 +236,58 @@ export default defineAgent({
 
     // ── Build system instructions ────────────────────────────────────────────
     let instructions;
+    let user = null;   // hoisted — TTS voice selection reads it below
 
     if (isDemo) {
       instructions = buildDemoInstructions(lang);
     } else if (userId) {
-      let user = null;
       let siteContent = '';
       try {
-        user = getUserById(userId);
-        if (user?.site_url) {
-          console.log(`[Navi Agent] Crawling site for user ${userId}: ${user.site_url}`);
+        user = await getUserById(userId);
+        // Prefer the pre-built knowledge base (crawled + stored by kb.js) —
+        // no per-session crawl latency. Fall back to a live crawl if empty.
+        const kb = user ? await getKBChunks(user.id) : [];
+        if (kb.length) {
+          siteContent = kb
+            .map(c => `[${c.kind}] ${c.title}\n${c.content}`)
+            .join('\n\n')
+            .slice(0, 12000);
+          console.log(`[Navi Agent] Loaded KB for user ${userId}: ${kb.length} chunks`);
+        } else if (user?.site_url) {
+          console.log(`[Navi Agent] No KB — live crawl for user ${userId}: ${user.site_url}`);
           siteContent = await crawlSite(user.site_url, 30);
           console.log(`[Navi Agent] Crawled ${siteContent.length} chars`);
         }
       } catch (err) {
-        console.warn('[Navi Agent] Crawl failed:', err.message);
+        console.warn('[Navi Agent] KB/crawl failed:', err.message);
       }
-      instructions = await buildClientInstructions(user ?? {}, siteContent);
+
+      // Returning-visitor memory — the remote participant's identity is the
+      // visitor_id set by /api/session/start.
+      let pastConvos = [];
+      try {
+        const visitorId = [...ctx.room.remoteParticipants.values()][0]?.identity;
+        if (user && visitorId && !visitorId.startsWith('visitor-')) {
+          pastConvos = await getConversationsByVisitor(user.id, visitorId, 6);
+          if (pastConvos.length) console.log(`[Navi Agent] returning visitor ${visitorId}: ${pastConvos.length} prior turns`);
+        }
+      } catch (err) {
+        console.warn('[Navi Agent] memory lookup failed:', err.message);
+      }
+
+      instructions = await buildClientInstructions(user ?? {}, siteContent, pastConvos);
     } else {
       instructions = buildDemoInstructions('en');
     }
 
     // ── Voice agent ──────────────────────────────────────────────────────────
+    const OPENAI_VOICES = ['onyx','alloy','echo','fable','nova','shimmer','ash','ballad','coral','sage','verse'];
+    const ttsVoice = OPENAI_VOICES.includes(user?.voice) ? user.voice : 'onyx';
     const navi = new voice.Agent({
       instructions,
       stt: makeSTT(),
       llm: makeGroqLLM(),
-      tts: new openai.TTS({ model: 'tts-1-hd', voice: 'onyx', speed: 0.9 }),
+      tts: new openai.TTS({ model: 'tts-1-hd', voice: ttsVoice, speed: 0.9 }),
     });
 
     // ── AgentSession ─────────────────────────────────────────────────────────

@@ -31,7 +31,7 @@ const randomId = () => Math.random().toString(36).slice(2, 12);
 router.get('/voice-token', async (req, res) => {
   const key = req.headers['x-navi-key'] ?? req.query.key;
   if (!key) return res.status(401).json({ error: 'missing x-navi-key' });
-  const user = getUserByKey(key);
+  const user = await getUserByKey(key);
   if (!user) return res.status(401).json({ error: 'invalid key' });
   if (!user.agent_enabled) return res.status(403).json({ error: 'agent paused' });
 

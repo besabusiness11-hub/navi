@@ -1,0 +1,55 @@
+# Navi backend stack — web (API) + agent (LiveKit voice worker) + Postgres.
+#
+# All env vars come from .env in this directory (see .env.example).
+# DATABASE_URL must point at the `postgres` service on the shared network:
+#   DATABASE_URL=postgresql://navi:<password>@postgres:5432/navi
+#
+# Already running Postgres elsewhere? Delete the `postgres` service below,
+# point DATABASE_URL at your instance, and drop the postgres `depends_on`.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-navi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-navi}
+    volumes:
+      - navi-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-navi}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [navi]
+
+  web:
+    build:
+      context: ./server
+    restart: unless-stopped
+    command: node index.js
+    env_file: [.env]
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [navi]
+
+  agent:
+    build:
+      context: ./server
+    restart: unless-stopped
+    command: node agent.js start
+    env_file: [.env]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [navi]
+
+volumes:
+  navi-pgdata:
+
+networks:
+  navi:
