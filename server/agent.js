@@ -219,7 +219,7 @@ const makeGroqLLM = () => new openai.LLM({
 
 const makeSTT = () =>
   process.env.DEEPGRAM_API_KEY && !process.env.DEEPGRAM_API_KEY.startsWith('your_')
-    ? new deepgram.STT({ model: 'nova-2', language: 'multi', keywords: ['Navi', 'navi'] })
+    ? new deepgram.STT({ model: 'nova-2', language: 'multi' })
     : new openai.STT({ model: 'whisper-1' });
 
 // ─── Agent entry ──────────────────────────────────────────────────────────────
