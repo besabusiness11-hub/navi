@@ -45,9 +45,15 @@
   let remoteAudioEls = [];
   let remoteAudioPlayed = false;
   let remoteAudioTrackPresent = false;     // agent TTS track subscribed
+  let liveKitAudioHeard = false;           // remote track carried non-silent audio
+  let lastRemoteAudioLevel = 0;
   let speechFallbackTimer = null;
   let clientAudioReadySent = false;
   let audioReadyListenerAttached = false;
+  let remoteAudioTracks = [];               // { track, el, routed } per remote audio track
+  let remoteAudioSources = [];              // Web Audio source nodes (cleanup)
+  let remoteAudioMonitors = [];             // analyser intervals (cleanup)
+  let remoteAudioRouted = false;            // true once a track plays via AudioContext
   let PROACTIVE_DELAY = 120000;             // ms; overridden by config
 
   const AUDIO_CONSTRAINTS = {
@@ -431,6 +437,83 @@
     });
   }
 
+  // ── Audio output unlock + routing ────────────────────────────────────────────
+  // Autoplay policy blocks remote WebRTC audio unless playback is unlocked from a
+  // user gesture. A shared AudioContext, resumed during a gesture, plays remote
+  // tracks free of the HTMLMediaElement autoplay policy. Tracks stay attached to a
+  // muted <audio> element so the WebRTC stream keeps pumping (required for Web
+  // Audio routing on Chromium).
+  function unlockAudioOutput() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      if (!window.__naviAC) window.__naviAC = new AC();
+      return window.__naviAC;
+    } catch (_) { return null; }
+  }
+
+  function routeRemoteAudio() {
+    const ac = window.__naviAC;
+    if (!ac || ac.state !== 'running') return false;
+    let routedAny = false;
+    remoteAudioTracks.forEach((entry) => {
+      if (entry.routed || !entry.track?.mediaStreamTrack) return;
+      try {
+        const src = ac.createMediaStreamSource(new MediaStream([entry.track.mediaStreamTrack]));
+        const analyser = ac.createAnalyser();
+        analyser.fftSize = 512;
+        src.connect(analyser);
+        analyser.connect(ac.destination);
+        remoteAudioSources.push(src);
+        entry.routed = true;
+        remoteAudioRouted = true;
+        const data = new Uint8Array(analyser.fftSize);
+        let loggedSignal = false;
+        const timer = setInterval(() => {
+          analyser.getByteTimeDomainData(data);
+          let sum = 0;
+          for (let i = 0; i < data.length; i += 1) {
+            const v = (data[i] - 128) / 128;
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / data.length);
+          lastRemoteAudioLevel = rms;
+          if (rms > 0.012) {
+            liveKitAudioHeard = true;
+            remoteAudioPlayed = true;
+            if (speechFallbackTimer) {
+              clearTimeout(speechFallbackTimer);
+              speechFallbackTimer = null;
+            }
+            if (!loggedSignal) {
+              loggedSignal = true;
+              console.info('[Navi] LiveKit audio signal detected', { rms: Number(rms.toFixed(4)) });
+            }
+            if (isOpen) setStatus('speaking');
+          }
+        }, 120);
+        remoteAudioMonitors.push({ analyser, timer });
+        // AudioContext now carries the audio — mute the element to avoid a second
+        // path, but keep it playing so the WebRTC stream stays alive.
+        if (entry.el) { entry.el.muted = true; entry.el.play().catch(() => {}); }
+        routedAny = true;
+        console.info('[Navi] remote audio routed via AudioContext');
+      } catch (err) {
+        console.warn('[Navi] AudioContext routing failed:', err.message);
+      }
+    });
+    return routedAny;
+  }
+
+  // Resume the AudioContext (needs a user gesture) then route any pending tracks.
+  function ensureAudioRouted() {
+    const ac = unlockAudioOutput();
+    if (!ac) return;
+    const done = () => { routeRemoteAudio(); signalClientAudioReady(); };
+    if (ac.state === 'running') done();
+    else ac.resume().then(done).catch(() => {});
+  }
+
   // ── Mic permission flow ──────────────────────────────────────────────────────
   async function ensureMicPermission() {
     if (micState === 'granted') return true;
@@ -507,21 +590,30 @@
         audioEl.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;';
         document.body.appendChild(audioEl);
         remoteAudioEls.push(audioEl);
+        remoteAudioTracks.push({ track, el: audioEl, routed: false });
+        audioEl.addEventListener('play',    () => { if (isOpen) setStatus('speaking'); });
+        audioEl.addEventListener('playing', () => { if (isOpen) setStatus('speaking'); });
+        audioEl.addEventListener('pause',   () => { if (isOpen && !remoteAudioRouted) setStatus('listening'); });
+        audioEl.addEventListener('ended',   () => { if (isOpen) setStatus('listening'); });
+
+        // Primary path: route through the AudioContext (immune to the autoplay
+        // policy once running). routeRemoteAudio() mutes the element on success.
+        ensureAudioRouted();
+
+        // Fallback path: element playback — for browsers without a usable
+        // AudioContext, or when it could not be resumed (no gesture yet).
         const playAudio = () => audioEl.play().catch((err) => {
           console.warn('[Navi] remote audio autoplay blocked:', err.message);
           showTranscript('Tap the microphone button to enable voice audio.');
         });
         r.startAudio?.().then(playAudio).then(() => signalClientAudioReady(r)).catch(playAudio);
-        audioEl.addEventListener('play',  () => { remoteAudioPlayed = true; if (isOpen) setStatus('speaking'); });
-        audioEl.addEventListener('playing', () => { remoteAudioPlayed = true; if (isOpen) setStatus('speaking'); });
-        audioEl.addEventListener('pause', () => { if (isOpen) setStatus('listening'); });
-        audioEl.addEventListener('ended', () => { if (isOpen) setStatus('listening'); });
       });
       r.on(RoomEvent.TrackUnsubscribed, (track) => {
         track.detach().forEach(el => {
           el.remove();
           remoteAudioEls = remoteAudioEls.filter(audioEl => audioEl !== el);
         });
+        remoteAudioTracks = remoteAudioTracks.filter(e => e.track !== track);
       });
 
       r.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
@@ -592,8 +684,19 @@
     if (room) { try { room.disconnect(); } catch (_) {} room = null; }
     remoteAudioEls.forEach(el => el.remove());
     remoteAudioEls = [];
+    remoteAudioSources.forEach(src => { try { src.disconnect(); } catch (_) {} });
+    remoteAudioSources = [];
+    remoteAudioMonitors.forEach(({ analyser, timer }) => {
+      if (timer) clearInterval(timer);
+      try { analyser?.disconnect(); } catch (_) {}
+    });
+    remoteAudioMonitors = [];
+    remoteAudioTracks = [];
+    remoteAudioRouted = false;
     remoteAudioPlayed = false;
     remoteAudioTrackPresent = false;
+    liveKitAudioHeard = false;
+    lastRemoteAudioLevel = 0;
     clientAudioReadySent = false;
     audioReadyListenerAttached = false;
     if (speechFallbackTimer) clearTimeout(speechFallbackTimer);
@@ -604,11 +707,14 @@
   function scheduleSpeechFallback(text) {
     if (speechFallbackTimer) clearTimeout(speechFallbackTimer);
     speechFallbackTimer = setTimeout(() => {
-      const hasLiveKitPlayback = remoteAudioEls.some(el => !el.paused && el.currentTime > 0.25);
+      const hasLiveKitPlayback = liveKitAudioHeard || lastRemoteAudioLevel > 0.012;
       if (hasLiveKitPlayback) return;
-      console.warn('[Navi] LiveKit audio track subscribed but no audible playback; using browser speech fallback.');
+      console.warn('[Navi] LiveKit audio subscribed but no audio signal detected; using browser speech fallback.', {
+        routed: remoteAudioRouted,
+        lastRemoteAudioLevel: Number(lastRemoteAudioLevel.toFixed(4)),
+      });
       speakFallback(text, true);
-    }, remoteAudioTrackPresent ? 1400 : 600);
+    }, remoteAudioTrackPresent ? 2400 : 900);
   }
 
   async function signalClientAudioReady(r = room) {
@@ -616,13 +722,20 @@
     try {
       await r.startAudio?.();
       remoteAudioEls.forEach(el => el.play().catch(() => {}));
-      const audioElPlaying = remoteAudioEls.some(el => !el.paused || el.currentTime > 0);
+      const ac = window.__naviAC;
+      const acRunning   = !!ac && ac.state === 'running';
+      const elPlaying   = remoteAudioEls.some(el => !el.paused || el.currentTime > 0);
       const canPlayback = r.canPlaybackAudio !== false;
-      if (!canPlayback || (!audioElPlaying && remoteAudioTrackPresent)) {
+      // Browser is ready when a track plays through the AudioContext, an audio
+      // element is actively playing, or no track exists yet but playback is allowed.
+      const unlocked = (remoteAudioRouted && acRunning)
+        || (canPlayback && elPlaying)
+        || (canPlayback && !remoteAudioTrackPresent);
+      if (!unlocked) {
         if (!audioReadyListenerAttached && LK?.RoomEvent?.AudioPlaybackStatusChanged) {
           audioReadyListenerAttached = true;
           const onPlaybackStatus = () => {
-            if (clientAudioReadySent || r.canPlaybackAudio === false) return;
+            if (clientAudioReadySent) return;
             r.off(LK.RoomEvent.AudioPlaybackStatusChanged, onPlaybackStatus);
             audioReadyListenerAttached = false;
             signalClientAudioReady(r);
@@ -698,6 +811,7 @@
   function openWidget() {
     if (isOpen) return;
     isOpen = true;
+    ensureAudioRouted();   // resume the AudioContext while still in the click gesture
     $('fab')?.classList.add('hidden');
     $('bar')?.classList.add('open');
     connect();
@@ -800,6 +914,7 @@
     $('fab').addEventListener('click', openWidget);
     $('close-btn').addEventListener('click', closeWidget);
     $('mic-btn').addEventListener('click', async () => {
+      ensureAudioRouted();   // resume audio + route remote tracks within the gesture
       if (!room || !LK) {
         connect();
         return;
