@@ -360,6 +360,44 @@ router.post('/tts', requireKey, async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: 'text required' });
 
+  const elevenKey = process.env.ELEVENLABS_API_KEY;
+  const elevenVoiceId = process.env.ELEVENLABS_VOICE_ID;
+  if (elevenKey && elevenVoiceId) {
+    try {
+      const modelId = process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2';
+      const outputFormat = process.env.ELEVENLABS_OUTPUT_FORMAT || 'mp3_44100_128';
+      const elevenResp = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(elevenVoiceId)}?output_format=${encodeURIComponent(outputFormat)}`,
+        {
+          method: 'POST',
+          headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text,
+            model_id: modelId,
+            voice_settings: {
+              stability: 0.35,
+              similarity_boost: 0.78,
+              style: 0.32,
+              use_speaker_boost: true,
+            },
+          }),
+        },
+      );
+      if (elevenResp.ok) {
+        res.setHeader('Content-Type', elevenResp.headers.get('content-type') || 'audio/mpeg');
+        elevenResp.body.pipeTo(new WritableStream({
+          write(chunk) { res.write(chunk); },
+          close() { res.end(); },
+        }));
+        return;
+      }
+      const body = await elevenResp.text().catch(() => '');
+      console.error(`[tts] ElevenLabs ${elevenResp.status} voice=${elevenVoiceId} model=${modelId}: ${body.slice(0, 500)}`);
+    } catch (err) {
+      console.error('[tts] ElevenLabs failed:', err.message);
+    }
+  }
+
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) return res.status(503).json({ error: 'tts not configured' });
 
