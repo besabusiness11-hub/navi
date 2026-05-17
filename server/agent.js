@@ -282,13 +282,23 @@ export default defineAgent({
 
     // ── Voice agent ──────────────────────────────────────────────────────────
     const OPENAI_VOICES = ['onyx','alloy','echo','fable','nova','shimmer','ash','ballad','coral','sage','verse'];
-    const ttsVoice = OPENAI_VOICES.includes(user?.voice) ? user.voice : 'onyx';
+    const ttsVoice = OPENAI_VOICES.includes(user?.voice) ? user.voice : 'coral';
+    const ttsModel = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
+    const ttsOptions = {
+      model: ttsModel,
+      voice: ttsVoice,
+      speed: 0.95,
+    };
+    if (ttsModel === 'gpt-4o-mini-tts') {
+      ttsOptions.instructions = 'Speak warmly and naturally, like a calm product guide. Keep it smooth, human, and conversational.';
+    }
     const navi = new voice.Agent({
       instructions,
       stt: makeSTT(),
       llm: makeGroqLLM(),
-      tts: new openai.TTS({ model: 'tts-1-hd', voice: ttsVoice, speed: 0.9 }),
+      tts: new openai.TTS(ttsOptions),
     });
+    console.log(`[Navi] TTS configured model=${ttsModel} voice=${ttsVoice}`);
 
     // ── AgentSession ─────────────────────────────────────────────────────────
     const vad  = await silero.VAD.load({

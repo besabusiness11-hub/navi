@@ -48,6 +48,10 @@
   let liveKitAudioHeard = false;           // remote track carried non-silent audio
   let lastRemoteAudioLevel = 0;
   let speechFallbackTimer = null;
+  let pendingAgentText = null;
+  let currentFallbackAudio = null;
+  let currentFallbackUrl = null;
+  let ttsFallbackController = null;
   let clientAudioReadySent = false;
   let audioReadyListenerAttached = false;
   let remoteAudioTracks = [];               // { track, el, routed } per remote audio track
@@ -485,13 +489,18 @@
               clearTimeout(speechFallbackTimer);
               speechFallbackTimer = null;
             }
-            if (!loggedSignal) {
-              loggedSignal = true;
-              console.info('[Navi] LiveKit audio signal detected', { rms: Number(rms.toFixed(4)) });
-            }
-            if (isOpen) setStatus('speaking');
+          if (!loggedSignal) {
+            loggedSignal = true;
+            console.info('[Navi] LiveKit audio signal detected', { rms: Number(rms.toFixed(4)) });
           }
-        }, 120);
+          if (pendingAgentText) {
+            showTranscript(pendingAgentText);
+            setTimeout(hideTranscript, 5000);
+            pendingAgentText = null;
+          }
+          if (isOpen) setStatus('speaking');
+        }
+      }, 120);
         remoteAudioMonitors.push({ analyser, timer });
         // AudioContext now carries the audio — mute the element to avoid a second
         // path, but keep it playing so the WebRTC stream stays alive.
@@ -633,7 +642,12 @@
             showTranscript(msg.text); setTimeout(hideTranscript, 3500);
           }
           if (msg.type === 'agent_text' && msg.text) {
-            showTranscript(msg.text); setTimeout(hideTranscript, 5000);
+            pendingAgentText = msg.text;
+            if (liveKitAudioHeard || (!remoteAudioTrackPresent && !room)) {
+              showTranscript(msg.text);
+              setTimeout(hideTranscript, 5000);
+              pendingAgentText = null;
+            }
             scheduleSpeechFallback(msg.text);
           }
           // Navigate → scroll AND contextual highlight.
@@ -682,6 +696,8 @@
 
   function disconnect() {
     if (room) { try { room.disconnect(); } catch (_) {} room = null; }
+    stopFallbackAudio();
+    pendingAgentText = null;
     remoteAudioEls.forEach(el => el.remove());
     remoteAudioEls = [];
     remoteAudioSources.forEach(src => { try { src.disconnect(); } catch (_) {} });
@@ -704,12 +720,32 @@
     isConnecting = false;
   }
 
+  function stopFallbackAudio() {
+    if (speechFallbackTimer) clearTimeout(speechFallbackTimer);
+    speechFallbackTimer = null;
+    try { window.speechSynthesis?.cancel(); } catch (_) {}
+    try { ttsFallbackController?.abort(); } catch (_) {}
+    ttsFallbackController = null;
+    if (currentFallbackAudio) {
+      try {
+        currentFallbackAudio.pause();
+        currentFallbackAudio.src = '';
+        currentFallbackAudio.load?.();
+      } catch (_) {}
+    }
+    currentFallbackAudio = null;
+    if (currentFallbackUrl) {
+      try { URL.revokeObjectURL(currentFallbackUrl); } catch (_) {}
+    }
+    currentFallbackUrl = null;
+  }
+
   function scheduleSpeechFallback(text) {
     if (speechFallbackTimer) clearTimeout(speechFallbackTimer);
     speechFallbackTimer = setTimeout(() => {
       const hasLiveKitPlayback = liveKitAudioHeard || lastRemoteAudioLevel > 0.012;
       if (hasLiveKitPlayback) return;
-      console.warn('[Navi] LiveKit audio subscribed but no audio signal detected; using browser speech fallback.', {
+      console.warn('[Navi] LiveKit audio subscribed but no audio signal detected; using OpenAI TTS fallback.', {
         routed: remoteAudioRouted,
         lastRemoteAudioLevel: Number(lastRemoteAudioLevel.toFixed(4)),
       });
@@ -756,21 +792,57 @@
     }
   }
 
-  function speakFallback(text, force = false) {
-    if (!('speechSynthesis' in window) || (!force && remoteAudioPlayed) || !isOpen) return;
+  async function speakFallback(text, force = false) {
+    if ((!force && remoteAudioPlayed) || !isOpen) return;
     const clean = String(text || '').replace(/\[[A-Z]+:[^\]]+\]/g, '').trim();
     if (!clean) return;
+    stopFallbackAudio();
+    if (!isOpen) return;
     try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(clean);
-      utterance.lang = (config?.lang_auto ? detectLang() : config?.lang || detectLang()) || 'en';
-      utterance.rate = 1.02;
-      utterance.pitch = 1;
-      utterance.onstart = () => setStatus('speaking');
-      utterance.onend = () => { if (room && isOpen) setStatus('listening'); };
-      window.speechSynthesis.speak(utterance);
+      ttsFallbackController = new AbortController();
+      const res = await fetch(`${BACKEND}/api/tts`, {
+        method: 'POST',
+        headers: { 'x-navi-key': API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: clean }),
+        signal: ttsFallbackController.signal,
+      });
+      if (!res.ok) throw new Error(`tts ${res.status}`);
+      const blob = await res.blob();
+      if (!isOpen) return;
+      currentFallbackUrl = URL.createObjectURL(blob);
+      currentFallbackAudio = new Audio(currentFallbackUrl);
+      currentFallbackAudio.onplay = () => {
+        showTranscript(clean);
+        setTimeout(hideTranscript, 5000);
+        pendingAgentText = null;
+        setStatus('speaking');
+      };
+      currentFallbackAudio.onended = () => {
+        if (room && isOpen) setStatus('listening');
+        stopFallbackAudio();
+      };
+      await currentFallbackAudio.play();
     } catch (err) {
-      console.warn('[Navi] speech fallback failed:', err.message);
+      if (err.name === 'AbortError') return;
+      console.warn('[Navi] OpenAI TTS fallback failed:', err.message);
+      if (!('speechSynthesis' in window) || !isOpen) return;
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(clean);
+        utterance.lang = (config?.lang_auto ? detectLang() : config?.lang || detectLang()) || 'en';
+        utterance.rate = 1.02;
+        utterance.pitch = 1;
+        utterance.onstart = () => {
+          showTranscript(clean);
+          setTimeout(hideTranscript, 5000);
+          pendingAgentText = null;
+          setStatus('speaking');
+        };
+        utterance.onend = () => { if (room && isOpen) setStatus('listening'); };
+        window.speechSynthesis.speak(utterance);
+      } catch (fallbackErr) {
+        console.warn('[Navi] browser speech fallback failed:', fallbackErr.message);
+      }
     }
   }
 

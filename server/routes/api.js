@@ -363,12 +363,22 @@ router.post('/tts', requireKey, async (req, res) => {
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) return res.status(503).json({ error: 'tts not configured' });
 
-  const voice = VOICE_IDS.has(req.user.voice) ? req.user.voice : 'onyx';
+  const voice = VOICE_IDS.has(req.user.voice) ? req.user.voice : 'coral';
+  const model = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
   try {
+    const payload = {
+      model,
+      voice,
+      input: text,
+      speed: 0.95,
+    };
+    if (model === 'gpt-4o-mini-tts') {
+      payload.instructions = 'Speak warmly and naturally, like a calm product guide. Keep it smooth, human, and conversational.';
+    }
     const resp = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'tts-1-hd', voice, input: text, speed: 0.92 }),
+      body: JSON.stringify(payload),
     });
     if (!resp.ok) throw new Error(`OpenAI TTS ${resp.status}`);
     res.setHeader('Content-Type', 'audio/mpeg');
