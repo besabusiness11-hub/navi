@@ -47,6 +47,7 @@
   let remoteAudioTrackPresent = false;     // agent TTS track subscribed
   let speechFallbackTimer = null;
   let clientAudioReadySent = false;
+  let audioReadyListenerAttached = false;
   let PROACTIVE_DELAY = 120000;             // ms; overridden by config
 
   const AUDIO_CONSTRAINTS = {
@@ -594,6 +595,7 @@
     remoteAudioPlayed = false;
     remoteAudioTrackPresent = false;
     clientAudioReadySent = false;
+    audioReadyListenerAttached = false;
     if (speechFallbackTimer) clearTimeout(speechFallbackTimer);
     speechFallbackTimer = null;
     isConnecting = false;
@@ -614,6 +616,22 @@
     try {
       await r.startAudio?.();
       remoteAudioEls.forEach(el => el.play().catch(() => {}));
+      const audioElPlaying = remoteAudioEls.some(el => !el.paused || el.currentTime > 0);
+      const canPlayback = r.canPlaybackAudio !== false;
+      if (!canPlayback || (!audioElPlaying && remoteAudioTrackPresent)) {
+        if (!audioReadyListenerAttached && LK?.RoomEvent?.AudioPlaybackStatusChanged) {
+          audioReadyListenerAttached = true;
+          const onPlaybackStatus = () => {
+            if (clientAudioReadySent || r.canPlaybackAudio === false) return;
+            r.off(LK.RoomEvent.AudioPlaybackStatusChanged, onPlaybackStatus);
+            audioReadyListenerAttached = false;
+            signalClientAudioReady(r);
+          };
+          r.on(LK.RoomEvent.AudioPlaybackStatusChanged, onPlaybackStatus);
+        }
+        console.info('[Navi] waiting for browser audio playback unlock');
+        return;
+      }
       r.localParticipant?.publishData(
         new TextEncoder().encode(JSON.stringify({ type: 'client_audio_ready' })),
         { reliable: true },

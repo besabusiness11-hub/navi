@@ -369,12 +369,14 @@ export default defineAgent({
         console.error('[Navi] greeting ERROR:', e?.message ?? e);
       }
     };
+    let greetFallback = null;
 
     ctx.room.on(RoomEvent.DataReceived, async (data, _sender) => {
       try {
         const msg = JSON.parse(new TextDecoder().decode(data));
 
         if (msg.type === 'client_audio_ready') {
+          if (greetFallback) clearTimeout(greetFallback);
           await speakGreeting('client_audio_ready');
         }
 
@@ -411,7 +413,7 @@ export default defineAgent({
         { reliable: true },
       );
     } catch (_) {}
-    setTimeout(() => speakGreeting('ready_timeout'), 7000);
+    greetFallback = setTimeout(() => speakGreeting('ready_timeout'), 8000);
 
     // v1.x: framework keeps process alive after entry returns — no waitForShutdown needed
   },
