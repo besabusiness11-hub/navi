@@ -290,7 +290,7 @@ export default defineAgent({
       speed: 0.95,
     };
     if (ttsModel === 'gpt-4o-mini-tts') {
-      ttsOptions.instructions = 'Speak warmly and naturally, like a calm product guide. Keep it smooth, human, and conversational.';
+      ttsOptions.instructions = 'Speak in a warm, natural human voice, like a friendly product expert in a one-on-one chat. Use a calm, unhurried pace with natural pauses between sentences. Vary intonation gently. Never sound like a radio announcer or a robot; sound relaxed, genuine, and helpful.';
     }
     const navi = new voice.Agent({
       instructions,

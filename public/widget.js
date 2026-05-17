@@ -418,14 +418,7 @@
 
   // Play a reply through the TTS proxy (best-effort).
   function playTTS(text) {
-    fetch(`${BACKEND}/api/tts`, {
-      method: 'POST',
-      headers: { 'x-navi-key': API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    })
-      .then(r => (r.ok ? r.blob() : Promise.reject()))
-      .then(b => { new Audio(URL.createObjectURL(b)).play().catch(() => {}); })
-      .catch(() => {});
+    speakFallback(text, true);
   }
 
   // ── LiveKit SDK loader ───────────────────────────────────────────────────────

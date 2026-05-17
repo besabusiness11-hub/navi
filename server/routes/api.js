@@ -374,7 +374,7 @@ router.post('/tts', requireKey, async (req, res) => {
         input: text,
         speed: 0.95,
         ...(model === 'gpt-4o-mini-tts'
-          ? { instructions: 'Speak warmly and naturally, like a calm product guide. Keep it smooth, human, and conversational.' }
+          ? { instructions: 'Speak in a warm, natural human voice, like a friendly product expert in a one-on-one chat. Use a calm, unhurried pace with natural pauses between sentences. Vary intonation gently. Never sound like a radio announcer or a robot; sound relaxed, genuine, and helpful.' }
           : {}),
       },
       {
