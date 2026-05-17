@@ -363,24 +363,43 @@ router.post('/tts', requireKey, async (req, res) => {
   const openaiKey = process.env.OPENAI_API_KEY;
   if (!openaiKey) return res.status(503).json({ error: 'tts not configured' });
 
-  const voice = VOICE_IDS.has(req.user.voice) ? req.user.voice : 'coral';
+  const preferredVoice = VOICE_IDS.has(req.user.voice) ? req.user.voice : 'coral';
   const model = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
   try {
-    const payload = {
-      model,
-      voice,
-      input: text,
-      speed: 0.95,
-    };
-    if (model === 'gpt-4o-mini-tts') {
-      payload.instructions = 'Speak warmly and naturally, like a calm product guide. Keep it smooth, human, and conversational.';
+    const legacyVoices = new Set(['alloy','echo','fable','onyx','nova','shimmer']);
+    const attempts = [
+      {
+        model,
+        voice: preferredVoice,
+        input: text,
+        speed: 0.95,
+        ...(model === 'gpt-4o-mini-tts'
+          ? { instructions: 'Speak warmly and naturally, like a calm product guide. Keep it smooth, human, and conversational.' }
+          : {}),
+      },
+      {
+        model: 'tts-1-hd',
+        voice: legacyVoices.has(preferredVoice) ? preferredVoice : 'nova',
+        input: text,
+        speed: 0.9,
+      },
+    ];
+
+    let resp = null;
+    let lastError = '';
+    for (const payload of attempts) {
+      resp = await fetch('https://api.openai.com/v1/audio/speech', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (resp.ok) break;
+      lastError = await resp.text().catch(() => '');
+      console.error(`[tts] OpenAI TTS ${resp.status} model=${payload.model} voice=${payload.voice}: ${lastError.slice(0, 500)}`);
+      resp = null;
     }
-    const resp = await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!resp.ok) throw new Error(`OpenAI TTS ${resp.status}`);
+
+    if (!resp) throw new Error(lastError || 'OpenAI TTS failed');
     res.setHeader('Content-Type', 'audio/mpeg');
     resp.body.pipeTo(new WritableStream({
       write(chunk) { res.write(chunk); },
