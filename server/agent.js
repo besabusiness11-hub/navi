@@ -302,9 +302,9 @@ export default defineAgent({
 
     // ── AgentSession ─────────────────────────────────────────────────────────
     const vad  = await silero.VAD.load({
-      minSpeechDuration: 0.1,    // detect short utterances
-      minSilenceDuration: 0.65,  // wait long enough not to cut user mid-sentence
-      activationThreshold: 0.5,
+      minSpeechDuration: 0.25,   // ignore tiny echo/noise bursts
+      minSilenceDuration: 0.75,  // wait long enough not to cut user mid-sentence
+      activationThreshold: 0.55,
     });
     const sess = new voice.AgentSession({
       vad,
@@ -342,6 +342,18 @@ export default defineAgent({
       } catch (_) {}
     });
 
+    sess.on('agent_state_changed', (ev) => {
+      console.log(`[Navi] agent_state_changed ${ev.oldState ?? '?'} -> ${ev.newState ?? ev.agentState ?? '?'}`);
+    });
+
+    sess.on('user_state_changed', (ev) => {
+      console.log(`[Navi] user_state_changed ${ev.oldState ?? '?'} -> ${ev.newState ?? ev.userState ?? '?'}`);
+    });
+
+    sess.on('error', (ev) => {
+      console.error('[Navi] session error:', ev?.error?.message ?? ev?.message ?? ev);
+    });
+
     // Mirror the final user transcript to the widget for display only.
     // Do NOT call generateReply here — AgentSession's STT→LLM→TTS pipeline
     // already produces the reply on turn end. A manual generateReply fires a
@@ -373,8 +385,9 @@ export default defineAgent({
       greetingStarted = true;
       console.log(`[Navi] greeting start reason=${reason}`);
       try {
-        await sess.say(greeting);
-        console.log('[Navi] greeting done');
+        const handle = sess.say(greeting, { allowInterruptions: false });
+        await handle.waitForPlayout();
+        console.log(`[Navi] greeting done interrupted=${handle.interrupted}`);
       } catch (e) {
         console.error('[Navi] greeting ERROR:', e?.message ?? e);
       }
