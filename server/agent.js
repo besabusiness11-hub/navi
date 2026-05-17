@@ -349,9 +349,34 @@ export default defineAgent({
     });
 
     // ── Data messages from widget ────────────────────────────────────────────
+    const greetings = {
+      it: 'Ciao! Sono Navi. Stai guardando il secondo blocco di questo sito e hai appena attivato un agente vocale AI in tempo reale. Questo e esattamente quello che Navi fa sul tuo sito: parla con i tuoi visitatori nel momento in cui arrivano, risponde alle loro domande e li guida. Cosa vorresti sapere?',
+      en: 'Hey! I\'m Navi. You just scrolled into the heart of this site and triggered a live AI voice agent. This is exactly what Navi does on your site: it speaks to visitors the moment they arrive, answers their questions, and guides them forward. What would you like to know?',
+      fr: 'Salut! Je suis Navi. Vous venez de faire defiler vers le coeur de ce site et d\'activer un agent vocal IA en direct. C\'est exactement ce que Navi fait sur votre site. Par ou voulez-vous commencer?',
+      de: 'Hallo! Ich bin Navi. Sie haben gerade in den Kern dieser Seite gescrollt und einen live KI-Sprachagenten ausgeloest. Genau das macht Navi auf Ihrer Website. Wo moechten Sie anfangen?',
+      es: 'Hola! Soy Navi. Acabas de desplazarte al corazon de este sitio y activaste un agente de voz AI en vivo. Eso es exactamente lo que Navi hace en tu sitio. Por donde quieres empezar?',
+    };
+    const greeting = greetings[lang] ?? greetings.en;
+    let greetingStarted = false;
+    const speakGreeting = async (reason) => {
+      if (greetingStarted) return;
+      greetingStarted = true;
+      console.log(`[Navi] greeting start reason=${reason}`);
+      try {
+        await sess.say(greeting);
+        console.log('[Navi] greeting done');
+      } catch (e) {
+        console.error('[Navi] greeting ERROR:', e?.message ?? e);
+      }
+    };
+
     ctx.room.on(RoomEvent.DataReceived, async (data, _sender) => {
       try {
         const msg = JSON.parse(new TextDecoder().decode(data));
+
+        if (msg.type === 'client_audio_ready') {
+          await speakGreeting('client_audio_ready');
+        }
 
         if (msg.type === 'ask' && msg.text) {
           await sess.say(msg.text);
@@ -379,33 +404,14 @@ export default defineAgent({
     // ── Start session ────────────────────────────────────────────────────────
     await sess.start({ agent: navi, room: ctx.room });
 
-    // Signal widget ready, then agent speaks first (not user)
-    setTimeout(async () => {
-      try {
-        await ctx.room.localParticipant.publishData(
-          new TextEncoder().encode(JSON.stringify({ type: 'ready' })),
-          { reliable: true },
-        );
-      } catch (_) {}
 
-      // Agent speaks opening introduction — triggered by user scrolling to section 2
-      const greetings = {
-        it: 'Ciao! Sono Navi. Stai guardando il secondo blocco di questo sito — e hai appena attivato un agente vocale AI in tempo reale. Questo è esattamente quello che Navi fa sul tuo sito: parla con i tuoi visitatori nel momento in cui arrivano, risponde alle loro domande e li guida. Cosa vorresti sapere?',
-        en: 'Hey! I\'m Navi. You just scrolled into the heart of this site — and triggered a live AI voice agent. This is exactly what Navi does on your site: it speaks to visitors the moment they arrive, answers their questions, and guides them forward. What would you like to know?',
-        fr: 'Salut! Je suis Navi. Vous venez de faire défiler vers le cœur de ce site — et d\'activer un agent vocal IA en direct. C\'est exactement ce que Navi fait sur votre site. Par où voulez-vous commencer?',
-        de: 'Hallo! Ich bin Navi. Sie haben gerade in den Kern dieser Seite gescrollt — und einen live KI-Sprachagenten ausgelöst. Genau das macht Navi auf Ihrer Website. Wo möchten Sie anfangen?',
-        es: '¡Hola! Soy Navi. Acabas de desplazarte al corazón de este sitio — y activaste un agente de voz AI en vivo. Eso es exactamente lo que Navi hace en tu sitio. ¿Por dónde quieres empezar?',
-      };
-      const greeting = greetings[lang] ?? greetings.en;
-
-      console.log(`[Navi] sess.say() start`);
-      try {
-        await sess.say(greeting);
-        console.log(`[Navi] sess.say() done`);
-      } catch (e) {
-        console.error(`[Navi] sess.say() ERROR:`, e?.message ?? e);
-      }
-    }, 2000);
+    try {
+      await ctx.room.localParticipant.publishData(
+        new TextEncoder().encode(JSON.stringify({ type: 'ready' })),
+        { reliable: true },
+      );
+    } catch (_) {}
+    setTimeout(() => speakGreeting('ready_timeout'), 7000);
 
     // v1.x: framework keeps process alive after entry returns — no waitForShutdown needed
   },

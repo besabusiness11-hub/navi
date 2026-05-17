@@ -46,6 +46,7 @@
   let remoteAudioPlayed = false;
   let remoteAudioTrackPresent = false;     // agent TTS track subscribed
   let speechFallbackTimer = null;
+  let clientAudioReadySent = false;
   let PROACTIVE_DELAY = 120000;             // ms; overridden by config
 
   const AUDIO_CONSTRAINTS = {
@@ -509,7 +510,7 @@
           console.warn('[Navi] remote audio autoplay blocked:', err.message);
           showTranscript('Tap the microphone button to enable voice audio.');
         });
-        r.startAudio?.().then(playAudio).catch(playAudio);
+        r.startAudio?.().then(playAudio).then(() => signalClientAudioReady(r)).catch(playAudio);
         audioEl.addEventListener('play',  () => { remoteAudioPlayed = true; if (isOpen) setStatus('speaking'); });
         audioEl.addEventListener('playing', () => { remoteAudioPlayed = true; if (isOpen) setStatus('speaking'); });
         audioEl.addEventListener('pause', () => { if (isOpen) setStatus('listening'); });
@@ -552,7 +553,10 @@
             const target = resolveTarget(msg.selector);
             if (target) highlightElement(target);
           }
-          if (msg.type === 'ready') sendSiteContext(r);
+          if (msg.type === 'ready') {
+            signalClientAudioReady(r);
+            sendSiteContext(r);
+          }
         } catch (_) {}
       });
 
@@ -589,6 +593,7 @@
     remoteAudioEls = [];
     remoteAudioPlayed = false;
     remoteAudioTrackPresent = false;
+    clientAudioReadySent = false;
     if (speechFallbackTimer) clearTimeout(speechFallbackTimer);
     speechFallbackTimer = null;
     isConnecting = false;
@@ -602,6 +607,22 @@
       console.warn('[Navi] LiveKit audio track subscribed but no audible playback; using browser speech fallback.');
       speakFallback(text, true);
     }, remoteAudioTrackPresent ? 1400 : 600);
+  }
+
+  async function signalClientAudioReady(r = room) {
+    if (clientAudioReadySent || !r) return;
+    try {
+      await r.startAudio?.();
+      remoteAudioEls.forEach(el => el.play().catch(() => {}));
+      r.localParticipant?.publishData(
+        new TextEncoder().encode(JSON.stringify({ type: 'client_audio_ready' })),
+        { reliable: true },
+      );
+      clientAudioReadySent = true;
+      console.info('[Navi] client audio ready');
+    } catch (err) {
+      console.warn('[Navi] client audio ready failed:', err.message);
+    }
   }
 
   function speakFallback(text, force = false) {
