@@ -58,6 +58,7 @@
   let remoteAudioSources = [];              // Web Audio source nodes (cleanup)
   let remoteAudioMonitors = [];             // analyser intervals (cleanup)
   let remoteAudioRouted = false;            // true once a track plays via AudioContext
+  const USE_PROXY_TTS_OUTPUT = true;        // play clean ElevenLabs MP3 instead of remote LiveKit audio
   let PROACTIVE_DELAY = 120000;             // ms; overridden by config
 
   const AUDIO_CONSTRAINTS = {
@@ -435,11 +436,9 @@
   }
 
   // ── Audio output unlock + routing ────────────────────────────────────────────
-  // Autoplay policy blocks remote WebRTC audio unless playback is unlocked from a
-  // user gesture. A shared AudioContext, resumed during a gesture, plays remote
-  // tracks free of the HTMLMediaElement autoplay policy. Tracks stay attached to a
-  // muted <audio> element so the WebRTC stream keeps pumping (required for Web
-  // Audio routing on Chromium).
+  // LiveKit still carries the realtime agent session, but browser output uses the
+  // /api/tts MP3 path for cleaner ElevenLabs playback. The remote WebRTC audio is
+  // kept attached and muted only so the track stays subscribed.
   function unlockAudioOutput() {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -460,7 +459,7 @@
         const analyser = ac.createAnalyser();
         analyser.fftSize = 512;
         src.connect(analyser);
-        analyser.connect(ac.destination);
+        if (!USE_PROXY_TTS_OUTPUT) analyser.connect(ac.destination);
         remoteAudioSources.push(src);
         entry.routed = true;
         remoteAudioRouted = true;
@@ -475,7 +474,7 @@
           }
           const rms = Math.sqrt(sum / data.length);
           lastRemoteAudioLevel = rms;
-          if (rms > 0.012) {
+          if (rms > 0.012 && !USE_PROXY_TTS_OUTPUT) {
             liveKitAudioHeard = true;
             remoteAudioPlayed = true;
             if (speechFallbackTimer) {
@@ -495,8 +494,8 @@
         }
       }, 120);
         remoteAudioMonitors.push({ analyser, timer });
-        // AudioContext now carries the audio — mute the element to avoid a second
-        // path, but keep it playing so the WebRTC stream stays alive.
+        // Keep the WebRTC element muted. The audible voice is rendered by
+        // speakFallback() through /api/tts to avoid realtime codec artifacts.
         if (entry.el) { entry.el.muted = true; entry.el.play().catch(() => {}); }
         routedAny = true;
         console.info('[Navi] remote audio routed via AudioContext');
@@ -588,13 +587,13 @@
         audioEl.autoplay = true;
         audioEl.playsInline = true;
         audioEl.controls = false;
-        audioEl.muted = false;
+        audioEl.muted = USE_PROXY_TTS_OUTPUT;
         audioEl.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;';
         document.body.appendChild(audioEl);
         remoteAudioEls.push(audioEl);
         remoteAudioTracks.push({ track, el: audioEl, routed: false });
-        audioEl.addEventListener('play',    () => { if (isOpen) setStatus('speaking'); });
-        audioEl.addEventListener('playing', () => { if (isOpen) setStatus('speaking'); });
+        audioEl.addEventListener('play',    () => { if (isOpen && !USE_PROXY_TTS_OUTPUT) setStatus('speaking'); });
+        audioEl.addEventListener('playing', () => { if (isOpen && !USE_PROXY_TTS_OUTPUT) setStatus('speaking'); });
         audioEl.addEventListener('pause',   () => { if (isOpen && !remoteAudioRouted) setStatus('listening'); });
         audioEl.addEventListener('ended',   () => { if (isOpen) setStatus('listening'); });
 
@@ -636,6 +635,10 @@
           }
           if (msg.type === 'agent_text' && msg.text) {
             pendingAgentText = msg.text;
+            if (USE_PROXY_TTS_OUTPUT) {
+              speakFallback(msg.text, true);
+              return;
+            }
             if (liveKitAudioHeard || (!remoteAudioTrackPresent && !room)) {
               showTranscript(msg.text);
               setTimeout(hideTranscript, 5000);
