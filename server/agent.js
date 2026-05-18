@@ -12,6 +12,7 @@ import { defineAgent, WorkerOptions, cli, voice, llm } from '@livekit/agents';
 import { RoomEvent } from '@livekit/rtc-node';
 import * as openai from '@livekit/agents-plugin-openai';
 import * as deepgram from '@livekit/agents-plugin-deepgram';
+import * as elevenlabs from '@livekit/agents-plugin-elevenlabs';
 import * as silero from '@livekit/agents-plugin-silero';
 import { fileURLToPath } from 'url';
 import { getUserById, getKBChunks, getConversationsByVisitor } from './db.js';
@@ -281,24 +282,41 @@ export default defineAgent({
     }
 
     // ── Voice agent ──────────────────────────────────────────────────────────
-    const OPENAI_VOICES = ['onyx','alloy','echo','fable','nova','shimmer','ash','ballad','coral','sage','verse'];
-    const ttsVoice = OPENAI_VOICES.includes(user?.voice) ? user.voice : 'coral';
-    const ttsModel = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
-    const ttsOptions = {
-      model: ttsModel,
-      voice: ttsVoice,
-      speed: 0.95,
-    };
-    if (ttsModel === 'gpt-4o-mini-tts') {
-      ttsOptions.instructions = 'Speak in a warm, natural human voice, like a friendly product expert in a one-on-one chat. Use a calm, unhurried pace with natural pauses between sentences. Vary intonation gently. Never sound like a radio announcer or a robot; sound relaxed, genuine, and helpful.';
+    // TTS: ElevenLabs (natural, human — no metallic) when configured; OpenAI otherwise.
+    let tts;
+    const elevenKey = process.env.ELEVENLABS_API_KEY;
+    if (elevenKey && !elevenKey.startsWith('your_')) {
+      const voiceId = process.env.ELEVENLABS_VOICE_ID || 'nPczCjzI2devNBz1zQrb'; // Brian — natural male
+      const elModel = process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2';  // most natural, no metallic edge
+      tts = new elevenlabs.TTS({
+        apiKey: elevenKey,
+        voiceId,
+        model: elModel,
+        voiceSettings: {
+          stability: 0.5,           // balanced delivery — neither flat nor wobbly
+          similarity_boost: 0.75,   // faithful to the voice timbre
+          style: 0.0,               // no exaggeration → avoids the synthetic edge
+          use_speaker_boost: true,  // fuller, warmer presence
+        },
+      });
+      console.log(`[Navi] TTS = ElevenLabs voice=${voiceId} model=${elModel}`);
+    } else {
+      const OPENAI_VOICES = ['onyx','alloy','echo','fable','nova','shimmer','ash','ballad','coral','sage','verse'];
+      const ttsVoice = OPENAI_VOICES.includes(user?.voice) ? user.voice : 'coral';
+      const ttsModel = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
+      const ttsOptions = { model: ttsModel, voice: ttsVoice, speed: 0.95 };
+      if (ttsModel === 'gpt-4o-mini-tts') {
+        ttsOptions.instructions = 'Speak in a warm, natural human voice, like a friendly product expert in a one-on-one chat. Use a calm, unhurried pace with natural pauses between sentences. Vary intonation gently. Never sound like a radio announcer or a robot; sound relaxed, genuine, and helpful.';
+      }
+      tts = new openai.TTS(ttsOptions);
+      console.log(`[Navi] TTS = OpenAI model=${ttsModel} voice=${ttsVoice}`);
     }
     const navi = new voice.Agent({
       instructions,
       stt: makeSTT(),
       llm: makeGroqLLM(),
-      tts: new openai.TTS(ttsOptions),
+      tts,
     });
-    console.log(`[Navi] TTS configured model=${ttsModel} voice=${ttsVoice}`);
 
     // ── AgentSession ─────────────────────────────────────────────────────────
     const vad  = await silero.VAD.load({
