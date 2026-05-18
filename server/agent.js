@@ -286,17 +286,17 @@ export default defineAgent({
     let tts;
     const elevenKey = process.env.ELEVENLABS_API_KEY;
     if (elevenKey && !elevenKey.startsWith('your_')) {
-      const voiceId = process.env.ELEVENLABS_VOICE_ID || 'nPczCjzI2devNBz1zQrb'; // Brian — natural male
-      const elModel = process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2';  // most natural, no metallic edge
+      const voiceId = process.env.ELEVENLABS_VOICE_ID || 'cgSgspJ2msm6clMCkdW9';
+      const elModel = process.env.ELEVENLABS_MODEL || process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2';
       tts = new elevenlabs.TTS({
         apiKey: elevenKey,
         voiceId,
         model: elModel,
         voiceSettings: {
-          stability: 0.5,           // balanced delivery — neither flat nor wobbly
-          similarity_boost: 0.75,   // faithful to the voice timbre
+          stability: 0.78,          // steadier timbre, less gender/pitch drift
+          similarity_boost: 0.84,   // keep the selected voice consistent
           style: 0.0,               // no exaggeration → avoids the synthetic edge
-          use_speaker_boost: true,  // fuller, warmer presence
+          use_speaker_boost: false, // avoids the metallic boosted edge
         },
       });
       console.log(`[Navi] TTS = ElevenLabs voice=${voiceId} model=${elModel}`);

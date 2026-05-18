@@ -817,25 +817,7 @@
       await currentFallbackAudio.play();
     } catch (err) {
       if (err.name === 'AbortError') return;
-      console.warn('[Navi] OpenAI TTS fallback failed:', err.message);
-      if (!('speechSynthesis' in window) || !isOpen) return;
-      try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(clean);
-        utterance.lang = (config?.lang_auto ? detectLang() : config?.lang || detectLang()) || 'en';
-        utterance.rate = 1.02;
-        utterance.pitch = 1;
-        utterance.onstart = () => {
-          showTranscript(clean);
-          setTimeout(hideTranscript, 5000);
-          pendingAgentText = null;
-          setStatus('speaking');
-        };
-        utterance.onend = () => { if (room && isOpen) setStatus('listening'); };
-        window.speechSynthesis.speak(utterance);
-      } catch (fallbackErr) {
-        console.warn('[Navi] browser speech fallback failed:', fallbackErr.message);
-      }
+      console.warn('[Navi] TTS fallback failed; browser speech fallback disabled to avoid robotic voice:', err.message);
     }
   }
 

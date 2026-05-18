@@ -362,7 +362,7 @@ router.post('/tts', requireKey, async (req, res) => {
 
   const elevenKey = process.env.ELEVENLABS_API_KEY;
   if (elevenKey && !elevenKey.startsWith('your_')) {
-    const elevenVoiceId = process.env.ELEVENLABS_VOICE_ID || 'nPczCjzI2devNBz1zQrb'; // Brian — natural male
+    const elevenVoiceId = process.env.ELEVENLABS_VOICE_ID || 'cgSgspJ2msm6clMCkdW9';
     try {
       const modelId = process.env.ELEVENLABS_MODEL || process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2';
       const outputFormat = process.env.ELEVENLABS_OUTPUT_FORMAT || 'mp3_44100_128';
@@ -375,10 +375,10 @@ router.post('/tts', requireKey, async (req, res) => {
             text,
             model_id: modelId,
             voice_settings: {
-              stability: 0.5,           // balanced — avoids the wobble/synthetic edge
-              similarity_boost: 0.75,   // faithful to the voice timbre
+              stability: 0.78,          // steadier timbre, less gender/pitch drift
+              similarity_boost: 0.84,   // keep the selected voice consistent
               style: 0.0,               // no exaggeration → no metallic artifact
-              use_speaker_boost: true,  // fuller, warmer presence
+              use_speaker_boost: false, // avoids the metallic boosted edge
             },
           }),
         },
