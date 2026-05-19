@@ -5,6 +5,10 @@ import {
   getLeads, getAnalytics, getQuota,
   searchConversations,
   trackVisitor, getVisitorStats, getCostStats,
+  getAdminOverview, logUsageEvent, logProviderError,
+  getUsageLimits, bumpUsage, planLimits,
+  getRecentProviderErrors, getProviderErrorSummary,
+  getRecentHealth,
 } from '../db.js';
 import { generateApiKey, generateToken } from '../keys.js';
 import { sendWelcomeEmail, sendLeadAlert, sendUnknownAlert } from '../email.js';
@@ -87,6 +91,54 @@ const requireToken = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+const requireAdmin = (req, res, next) => {
+  const configured = process.env.ADMIN_TOKEN;
+  const token = req.headers['x-admin-token'] ?? req.query.token;
+  if (!configured) return res.status(503).json({ error: 'admin not configured' });
+  if (!token || token !== configured) return res.status(401).json({ error: 'invalid admin token' });
+  next();
+};
+
+const estimateCents = (provider, metric, amount) => {
+  const n = Number(amount) || 0;
+  if (metric === 'tts_chars' && provider === 'elevenlabs') return Math.ceil((n / 1000000) * 3000);
+  if (metric === 'tts_chars' && provider === 'openai') return Math.ceil((n / 1000000) * 1500);
+  if (metric === 'llm_tokens' && provider === 'openai') return Math.ceil((n / 1000000) * 150);
+  if (metric === 'llm_tokens') return Math.ceil((n / 1000000) * 80);
+  return 0;
+};
+
+// External-fetch helper — timeout + retry-free abort. Returns the Response so
+// callers can stream/inspect; throws on network/timeout (status != ok is the
+// caller's call). Always log a provider_errors row on failure.
+const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS) || 8000;
+async function callProvider(provider, route, url, init, { user_id = null, meta = {} } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort('timeout'), PROVIDER_TIMEOUT_MS);
+  const start = Date.now();
+  try {
+    const resp = await fetch(url, { ...init, signal: ctrl.signal });
+    if (!resp.ok) {
+      const body = await resp.clone().text().catch(() => '');
+      logProviderError({
+        user_id, provider, route, status: resp.status,
+        error: body.slice(0, 500),
+        meta: { ...meta, latency_ms: Date.now() - start },
+      });
+    }
+    return resp;
+  } catch (err) {
+    logProviderError({
+      user_id, provider, route, status: null,
+      error: err?.message ?? String(err),
+      meta: { ...meta, latency_ms: Date.now() - start, aborted: ctrl.signal.aborted },
+    });
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ── Free plan provision (no Stripe) ──────────────────────────────────────────
 router.get('/provision', async (req, res) => {
   const { email, name, plan } = req.query;
@@ -117,6 +169,7 @@ router.get('/me', requireToken, (req, res) => {
     kb_status: u.kb_status || 'none', kb_pages: u.kb_pages || 0,
     proactive_delay: u.proactive_delay ?? 120, auto_palette: !!u.auto_palette,
     quota: getQuota(u),
+    limits: getUsageLimits(u),
   });
 });
 
@@ -157,6 +210,28 @@ router.get('/analytics', requireToken, async (req, res) => {
     sessions: cost.sessions,
   };
   res.json({ ...analytics, visitors, margin });
+});
+
+router.get('/admin/overview', requireAdmin, async (req, res) => {
+  const days = Number(req.query.days ?? 30);
+  res.json(await getAdminOverview({ days }));
+});
+
+// Last N provider errors + per-provider summary. Powers the admin "provider
+// health" panel — surfaces ElevenLabs/Groq/OpenAI failure trends.
+router.get('/admin/errors', requireAdmin, async (req, res) => {
+  const days = Number(req.query.days ?? 7);
+  const [recent, summary] = await Promise.all([
+    getRecentProviderErrors({ days, limit: 200 }),
+    getProviderErrorSummary({ days }),
+  ]);
+  res.json({ days, summary, recent });
+});
+
+// Aggregated uptime samples — written by scripts/uptime-check.js.
+router.get('/admin/health', requireAdmin, async (req, res) => {
+  const hours = Number(req.query.hours ?? 24);
+  res.json({ hours, samples: await getRecentHealth({ hours }) });
 });
 
 // Transcripts list + search.  ?q= search term, ?page= 0-based.
@@ -229,7 +304,10 @@ router.get('/widget/config', async (req, res) => {
   if (!user) return res.status(404).json({ error: 'invalid key' });
 
   const quota = getQuota(user);
-  const disabled = !user.agent_enabled || quota.exhausted;
+  const limits = getUsageLimits(user);
+  const exhaustedMetric = Object.entries(limits)
+    .find(([, value]) => value?.exhausted)?.[0] ?? null;
+  const disabled = !user.agent_enabled || quota.exhausted || !!exhaustedMetric;
 
   res.json({
     vinyl:     user.vinyl_color,
@@ -240,7 +318,9 @@ router.get('/widget/config', async (req, res) => {
     proactive_delay: user.proactive_delay ?? 120,
     auto_palette:    !!user.auto_palette,
     disabled,
-    reason:    !user.agent_enabled ? 'paused' : quota.exhausted ? 'quota' : null,
+    reason:    !user.agent_enabled ? 'paused' : quota.exhausted ? 'quota' : exhaustedMetric ? `${exhaustedMetric}_quota` : null,
+    quota,
+    limits,
   });
 });
 
@@ -277,9 +357,32 @@ router.post('/kb/crawl', requireToken, (req, res) => {
   if (!user.site_url) return res.status(400).json({ error: 'set your site URL first' });
   if (user.kb_status === 'crawling') return res.status(409).json({ error: 'crawl already running' });
 
-  // Fire-and-forget — buildKB updates kb_status as it progresses.
-  buildKB(user).catch(err => console.error('[kb/crawl]', err.message));
-  res.json({ status: 'crawling' });
+  // KB-page cap — also lets us cap the crawl size to the remaining headroom so
+  // we never crawl past the customer's plan.
+  const kbLimit = getUsageLimits(user).kb_pages;
+  if (kbLimit.exhausted) {
+    return res.status(402).json({ error: 'kb page quota exhausted', metric: 'kb_pages' });
+  }
+  const maxPages = Math.max(1, Math.min(kbLimit.remaining, planLimits(user.plan).kb_pages));
+
+  // Fire-and-forget — buildKB updates kb_status as it progresses. Increment
+  // kb_pages_used optimistically with the count it eventually crawled.
+  buildKB(user, { maxPages })
+    .then(result => {
+      if (result?.pages) {
+        logUsageEvent({
+          user_id: user.id,
+          provider: 'crawler',
+          metric: 'kb_pages',
+          amount: result.pages,
+          cost_eur_cents: 0,
+          meta: { route: 'kb/crawl', site_url: user.site_url },
+        }).catch(err => console.error('[usage/kb]', err.message));
+        bumpUsage(user.id, 'kb_pages_used', result.pages).catch(() => {});
+      }
+    })
+    .catch(err => console.error('[kb/crawl]', err.message));
+  res.json({ status: 'crawling', maxPages });
 });
 
 router.get('/kb/status', requireToken, async (req, res) => {
@@ -300,37 +403,79 @@ router.post('/chat', requireKey, async (req, res) => {
   let reply = '';
   let target = null;
 
+  // LLM-token cap gate. We check BEFORE the call; the response usage is added
+  // after. A small overshoot per request is fine (one call past the cap), but
+  // a hard-stop here prevents an attacker burning unlimited Groq tokens.
+  const limits = getUsageLimits(user);
+  if (limits.llm_tokens.exhausted) {
+    return res.status(402).json({ error: 'llm quota exhausted', metric: 'llm_tokens' });
+  }
+
   // Visitor tracking (country/device/browser, unique vs returning).
   trackFromReq(user.id, visitor_id, req);
 
-  // Call LLM (Groq preferred, fallback to simple keyword reply)
-  try {
-    const groqKey = process.env.GROQ_API_KEY;
-    if (!groqKey) throw new Error('no groq key');
+  // Retrieve KB once — shared between Groq and OpenAI fallback.
+  const kbChunks = await retrieveKB(user.id, message).catch(() => []);
+  const systemPrompt = buildSystem(user) + formatKBForPrompt(kbChunks);
+  const msgs = [
+    { role: 'system', content: systemPrompt },
+    ...history.slice(-12),
+    { role: 'user', content: message },
+  ];
 
-    // Retrieve relevant KB chunks for this question and ground the agent.
-    const kbChunks = await retrieveKB(user.id, message).catch(() => []);
-    const systemPrompt = buildSystem(user) + formatKBForPrompt(kbChunks);
-    const msgs = [
-      { role: 'system', content: systemPrompt },
-      ...history.slice(-12),
-      { role: 'user', content: message },
-    ];
-
-    const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: msgs, max_tokens: 280, temperature: 0.8 }),
+  // Try providers in order: Groq → OpenAI gpt-4o-mini. Each provider error is
+  // logged to provider_errors via callProvider so the admin page can see the
+  // pattern.
+  const providers = [];
+  if (process.env.GROQ_API_KEY) {
+    providers.push({
+      name: 'groq',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      key: process.env.GROQ_API_KEY,
+      model: 'llama-3.3-70b-versatile',
     });
+  }
+  if (process.env.OPENAI_API_KEY) {
+    providers.push({
+      name: 'openai',
+      url: 'https://api.openai.com/v1/chat/completions',
+      key: process.env.OPENAI_API_KEY,
+      model: 'gpt-4o-mini',
+    });
+  }
 
-    if (!resp.ok) throw new Error(`Groq ${resp.status}`);
-    const data = await resp.json();
-    const raw = data.choices?.[0]?.message?.content ?? '';
-    const parsed = parseNav(raw);
-    reply = parsed.text;
-    target = parsed.target;
-  } catch (err) {
-    console.error('[chat] LLM error:', err.message);
+  let usedProvider = null;
+  for (const p of providers) {
+    try {
+      const resp = await callProvider(p.name, 'chat', p.url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${p.key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: p.model, messages: msgs, max_tokens: 280, temperature: 0.8 }),
+      }, { user_id: user.id, meta: { model: p.model } });
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      const usageTokens = Number(data.usage?.total_tokens ?? 0);
+      if (usageTokens) {
+        await logUsageEvent({
+          user_id: user.id, provider: p.name, metric: 'llm_tokens',
+          amount: usageTokens,
+          cost_eur_cents: estimateCents(p.name, 'llm_tokens', usageTokens),
+          meta: { route: 'chat', model: p.model },
+        }).catch(err => console.error('[usage/chat]', err.message));
+        await bumpUsage(user.id, 'llm_tokens_used', usageTokens);
+      }
+      const raw = data.choices?.[0]?.message?.content ?? '';
+      const parsed = parseNav(raw);
+      reply = parsed.text;
+      target = parsed.target;
+      usedProvider = p.name;
+      break;
+    } catch (err) {
+      // callProvider already logged; try next provider.
+      continue;
+    }
+  }
+  if (!usedProvider) {
     reply = "I'm here to help. Try asking me about pricing, features, or how to get started.";
   }
 
@@ -360,12 +505,19 @@ router.post('/tts', requireKey, async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: 'text required' });
 
+  // TTS-character cap gate. Reject before calling either provider.
+  const ttsLimits = getUsageLimits(req.user).tts_chars;
+  if (ttsLimits.exhausted) {
+    return res.status(402).json({ error: 'tts quota exhausted', metric: 'tts_chars' });
+  }
+  const reqChars = String(text).length;
+
   const elevenKey = process.env.ELEVENLABS_API_KEY;
   if (elevenKey && !elevenKey.startsWith('your_')) {
     const elevenVoiceId = process.env.ELEVENLABS_VOICE_ID || 'cgSgspJ2msm6clMCkdW9';
+    const modelId = process.env.ELEVENLABS_MODEL || process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2';
+    const outputFormat = process.env.ELEVENLABS_OUTPUT_FORMAT || 'mp3_44100_128';
     try {
-      const modelId = process.env.ELEVENLABS_MODEL || process.env.ELEVENLABS_MODEL_ID || 'eleven_multilingual_v2';
-      const outputFormat = process.env.ELEVENLABS_OUTPUT_FORMAT || 'mp3_44100_128';
       const elevenResp = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(elevenVoiceId)}?output_format=${encodeURIComponent(outputFormat)}`,
         {
@@ -384,6 +536,17 @@ router.post('/tts', requireKey, async (req, res) => {
         },
       );
       if (elevenResp.ok) {
+        const chars = reqChars;
+        logUsageEvent({
+          user_id: req.user.id,
+          provider: 'elevenlabs',
+          metric: 'tts_chars',
+          amount: chars,
+          cost_eur_cents: estimateCents('elevenlabs', 'tts_chars', chars),
+          meta: { route: 'tts', model: modelId, voice: elevenVoiceId },
+        }).catch(err => console.error('[usage/tts]', err.message));
+        bumpUsage(req.user.id, 'tts_chars_used', chars)
+          .catch(err => console.error('[bumpUsage/tts]', err.message));
         res.setHeader('Content-Type', elevenResp.headers.get('content-type') || 'audio/mpeg');
         elevenResp.body.pipeTo(new WritableStream({
           write(chunk) { res.write(chunk); },
@@ -393,8 +556,18 @@ router.post('/tts', requireKey, async (req, res) => {
       }
       const body = await elevenResp.text().catch(() => '');
       console.error(`[tts] ElevenLabs ${elevenResp.status} voice=${elevenVoiceId} model=${modelId}: ${body.slice(0, 500)}`);
+      logProviderError({
+        user_id: req.user.id, provider: 'elevenlabs', route: 'tts',
+        status: elevenResp.status, error: body.slice(0, 500),
+        meta: { voice: elevenVoiceId, model: modelId },
+      });
     } catch (err) {
       console.error('[tts] ElevenLabs failed:', err.message);
+      logProviderError({
+        user_id: req.user.id, provider: 'elevenlabs', route: 'tts',
+        status: null, error: err?.message ?? String(err),
+        meta: { voice: elevenVoiceId, model: modelId },
+      });
     }
   }
 
@@ -434,10 +607,26 @@ router.post('/tts', requireKey, async (req, res) => {
       if (resp.ok) break;
       lastError = await resp.text().catch(() => '');
       console.error(`[tts] OpenAI TTS ${resp.status} model=${payload.model} voice=${payload.voice}: ${lastError.slice(0, 500)}`);
+      logProviderError({
+        user_id: req.user.id, provider: 'openai', route: 'tts',
+        status: resp.status, error: lastError.slice(0, 500),
+        meta: { model: payload.model, voice: payload.voice },
+      });
       resp = null;
     }
 
     if (!resp) throw new Error(lastError || 'OpenAI TTS failed');
+    const chars = reqChars;
+    logUsageEvent({
+      user_id: req.user.id,
+      provider: 'openai',
+      metric: 'tts_chars',
+      amount: chars,
+      cost_eur_cents: estimateCents('openai', 'tts_chars', chars),
+      meta: { route: 'tts', model: resp.url ? model : 'fallback', voice: preferredVoice },
+    }).catch(err => console.error('[usage/tts]', err.message));
+    bumpUsage(req.user.id, 'tts_chars_used', chars)
+      .catch(err => console.error('[bumpUsage/tts]', err.message));
     res.setHeader('Content-Type', 'audio/mpeg');
     resp.body.pipeTo(new WritableStream({
       write(chunk) { res.write(chunk); },
@@ -445,6 +634,10 @@ router.post('/tts', requireKey, async (req, res) => {
     }));
   } catch (err) {
     console.error('[tts]', err.message);
+    logProviderError({
+      user_id: req.user.id, provider: 'openai', route: 'tts',
+      status: null, error: err?.message ?? String(err),
+    });
     res.status(500).json({ error: 'tts failed' });
   }
 });

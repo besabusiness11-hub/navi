@@ -131,7 +131,7 @@ const ValueEntry = ({ val, textDone, delay }) => (
 );
 
 const SNIPPETS = {
-  script: `<script src="https://getnavi.dev/widget.js" data-key="YOUR_KEY" defer></script>`,
+  script: `<script src="https://api.getnavi.dev/widget.js" data-key="YOUR_KEY" defer></script>`,
   npm: `npm install @navi-ai/widget`,
 };
 
@@ -181,7 +181,7 @@ const InstallSnippet = () => {
           <span className="text-white/20 font-mono text-xs flex-shrink-0 select-none">$</span>
           <span className="font-mono text-xs text-white/60 truncate">
             {tab === 'script'
-              ? <><span className="text-[#7db3ff]">{'<script'}</span><span className="text-white/40">{' src='}</span><span className="text-[#7dde8a]">"https://getnavi.dev/widget.js"</span><span className="text-white/40">{' data-key='}</span><span className="text-[#7dde8a]">"YOUR_KEY"</span><span className="text-[#7db3ff]">{' defer></script>'}</span></>
+              ? <><span className="text-[#7db3ff]">{'<script'}</span><span className="text-white/40">{' src='}</span><span className="text-[#7dde8a]">"https://api.getnavi.dev/widget.js"</span><span className="text-white/40">{' data-key='}</span><span className="text-[#7dde8a]">"YOUR_KEY"</span><span className="text-[#7db3ff]">{' defer></script>'}</span></>
               : <><span className="text-white/40">npm install </span><span className="text-[#7dde8a]">@navi-ai/widget</span></>
             }
           </span>

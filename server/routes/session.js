@@ -4,6 +4,7 @@ import {
   getUserByKey, getUserById, getQuota, consumeSession,
   createSession, getSessionByRoom, endSession, markSessionCounted,
   trackVisitor, SESSION_COST_CENTS,
+  getUsageLimits, bumpUsage, logUsageEvent,
 } from '../db.js';
 
 const router = Router();
@@ -34,10 +35,16 @@ router.post('/start', async (req, res) => {
   if (!user) return res.status(401).json({ error: 'invalid key' });
   if (!user.agent_enabled) return res.status(403).json({ error: 'agent paused' });
 
-  // Quota check — block before issuing a token.
+  // Quota check — block before issuing a token. Both the session counter
+  // (sessions/mo) and the voice-minutes cap gate here; voice_seconds protects
+  // margin when one customer runs many short sessions.
   const quota = getQuota(user);
   if (quota.exhausted) {
     return res.status(402).json({ error: 'quota exhausted', quota });
+  }
+  const limits = getUsageLimits(user);
+  if (limits.voice_seconds.exhausted) {
+    return res.status(402).json({ error: 'voice quota exhausted', metric: 'voice_seconds', limits });
   }
 
   const { LIVEKIT_API_KEY: apiKey, LIVEKIT_API_SECRET: apiSecret, LIVEKIT_WS_URL: wsUrl } = process.env;
@@ -93,7 +100,18 @@ export async function finalizeSession(roomName, durationSec = 0) {
   await endSession(roomName, { duration_sec: Math.round(durationSec), cost_eur_cents: costCents });
 
   const user = await getUserById(session.user_id);
-  if (user) await consumeSession(user);
+  if (user) {
+    await consumeSession(user);
+    await bumpUsage(user.id, 'voice_seconds_used', Math.round(durationSec));
+    await logUsageEvent({
+      user_id: user.id,
+      provider: 'livekit',
+      metric: 'voice_seconds',
+      amount: Math.round(durationSec),
+      cost_eur_cents: 0,
+      meta: { route: 'session', room_name: roomName, session_id: session.id },
+    }).catch(err => console.error('[usage/session]', err.message));
+  }
   await markSessionCounted(roomName);
 
   console.log(`[session/end] room=${roomName} dur=${Math.round(durationSec)}s cost=${costCents}c`);

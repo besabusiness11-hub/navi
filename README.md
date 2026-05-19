@@ -1,209 +1,357 @@
 # Navi
 
-**AI voice agent for your website.** Not a chatbot. A voice. A presence.
+AI voice agent for websites. Navi is a SaaS B2B product that lets a customer install one script tag on their site and get a conversational text + voice assistant connected to the site's knowledge base.
 
-Real-time voice conversation, lead capture, 30+ languages. Drops into any site with a single script tag.
+Production domains:
 
-![Navi](https://img.shields.io/badge/Status-In%20Development-D4AF37?style=flat-square&labelColor=020405)
+- Public website / app: `https://getnavi.dev`
+- API + widget: `https://api.getnavi.dev`
 
----
-
-## What it does
-
-- **Speaks live** with visitors via LiveKit Cloud (sub-300 ms latency)
-- **Listens** with Silero VAD + OpenAI Whisper / Deepgram Nova-2 STT
-- **Thinks** with Groq Llama 3.3 70B (sub-second LLM)
-- **Talks back** with OpenAI TTS-1-HD (or any OpenAI-compatible TTS)
-- **Learns** the site by crawling on dispatch
-- **Captures leads** (name, email, intent, transcript) via lightweight SQLite
+Current status: active development, VPS deploy in progress.
 
 ---
 
-## Architecture
+## Current Architecture
 
-```
-Browser (React + Vite)
-   ├── livekit-client  ─────►  LiveKit Cloud  ◄────  Agent worker (server/agent.js)
-   │                                                  ├── STT plugin
-   │                                                  ├── LLM plugin (Groq)
-   │                                                  └── TTS plugin (OpenAI)
-   │
-   └── fetch /api/voice-token/demo  ──►  Express API (server/index.js)
-                                             ├── token issuance (livekit-server-sdk)
-                                             ├── agent dispatch
-                                             ├── checkout (Stripe)
-                                             └── feedback / leads / analytics
-```
+Navi is split into four main parts:
 
-Three processes run in dev:
+| Area | Role |
+| --- | --- |
+| Frontend | React/Vite app served on `getnavi.dev`. Includes landing, pricing, checkout flow, user dashboard, and admin dashboard. |
+| API backend | Express server on port `8000`. Handles auth-by-token dashboard access, widget config, chat, TTS, Stripe, LiveKit dispatch, KB crawl, analytics, and admin endpoints. |
+| Voice worker | `server/agent.js`, a long-running LiveKit agent process. Handles real-time voice conversations. |
+| Database | Postgres in Docker. Stores users, API keys, sessions, usage, KB chunks, provider errors, health checks, and admin alerts. |
 
-| Process                         | Command                  | Port |
-|---------------------------------|--------------------------|------|
-| Vite dev server (frontend)      | `npm run dev`            | 5173 |
-| Express API                     | `node server/index.js`   | 4000 |
-| LiveKit agent worker            | `node server/agent.js start` | (registers with cloud) |
+Deployment on the VPS runs with Docker Compose:
 
-`./start-navi.ps1` launches the server + agent together.
+- `postgres`
+- `web`
+- `agent`
+
+Nginx on the VPS reverse-proxies:
+
+- `https://api.getnavi.dev` -> backend `web:8000`
+- `https://getnavi.dev` -> built frontend in `/var/www/navi/dist`
 
 ---
 
-## Tech stack
+## What We Have Done
 
-- **React 18** + **Vite 5**
-- **Framer Motion** — scroll, drag drawer, crossfade favicon
-- **Tailwind CSS**
-- **livekit-client** (frontend) + **@livekit/agents** v1.x (Node worker)
-- **Groq** — Llama 3.3 70B via OpenAI-compatible API
-- **OpenAI** — TTS-1-HD (`onyx`), Whisper STT
-- **Silero VAD** — speech endpointing
-- **Stripe** — checkout (Free €0 / Starter €49 / Business €99 / Agency €199 per month)
-- **Resend** — transactional email
-- **node:sqlite** — embedded user / conversation / lead storage
+### Database And Deploy
+
+- Migrated backend from SQLite to Postgres.
+- Added Docker deploy flow for `web`, `agent`, and `postgres`.
+- Set backend runtime to Node 22.
+- Configured production backend port to `8000`.
+- Configured public API domain `api.getnavi.dev`.
+- Added env-driven CORS for `getnavi.dev` and `www.getnavi.dev`.
+- Served `widget.js` and vinyl image assets from the API container.
+- Fixed Docker packaging issues for widget assets and server files.
+
+### Stripe
+
+- Integrated Stripe checkout.
+- Configured test-mode price IDs for:
+  - Starter
+  - Business
+  - Agency
+- Added Stripe webhook endpoint:
+  - `https://api.getnavi.dev/api/webhook`
+- Verified successful checkout can create/provision a user.
+
+### User Dashboard
+
+- Dashboard opens through `https://getnavi.dev/dashboard?token=...`.
+- Dashboard shows install snippet with API key.
+- Widget can be installed with:
+
+```html
+<script
+  src="https://api.getnavi.dev/widget.js"
+  data-key="CUSTOMER_API_KEY"
+  defer
+></script>
+```
+
+### Widget
+
+- Fixed public widget asset loading.
+- Fixed widget config API key validation.
+- Fixed CORS for widget routes so it can run on customer websites.
+- Added text chat support.
+- Added voice flow through LiveKit.
+- Fixed browser audio autoplay by routing remote audio through AudioContext.
+- Added ElevenLabs TTS support for more natural voice output.
+- Tuned the voice after testing several ElevenLabs voices.
+- Current preferred voice is a softer male voice, configured through `ELEVENLABS_VOICE_ID`.
+
+### AI Providers
+
+Configured provider stack:
+
+- Groq for fast LLM replies.
+- OpenAI for embeddings and fallback TTS.
+- Deepgram for STT.
+- ElevenLabs for premium TTS.
+- LiveKit for real-time voice rooms and agent dispatch.
+
+### Admin Backend
+
+Task 1 has been completed locally:
+
+- Added `usage_events` table.
+- Added usage counters for:
+  - voice seconds
+  - TTS characters
+  - LLM tokens
+  - KB pages
+- Added automatic tracking for:
+  - text chat
+  - HTTP TTS
+  - voice sessions
+  - LiveKit agent usage estimates
+  - KB crawl
+- Added provider error logging.
+- Added health check logging.
+- Added admin alert logging.
+- Added quota watcher.
+- Added rate limiting.
+- Added admin endpoints protected by `ADMIN_TOKEN`:
+  - `GET /api/admin/overview`
+  - `GET /api/admin/errors`
+  - `GET /api/admin/health`
+- Added React admin dashboard route:
+  - `https://getnavi.dev/admin`
+
+Detailed Task 1 report:
+
+- `TASK1_ADMIN_BACKEND_REPORT.md`
 
 ---
 
-## Getting started
+## Environment Variables
 
-### Prerequisites
+The production VPS uses `.env` in `~/navi`.
 
-- Node.js 22+ (uses experimental `node:sqlite`)
-- LiveKit Cloud account → API key + secret + WS URL
-- Groq API key
-- OpenAI API key (TTS + Whisper STT)
-- Optional: Deepgram (better STT), Stripe (paid plans), Resend (email)
+Important variables:
 
-### Setup
+```env
+APP_URL=https://getnavi.dev
+PUBLIC_API_URL=https://api.getnavi.dev
+VITE_BACKEND_URL=https://api.getnavi.dev
+PORT=8000
+ALLOWED_ORIGINS=https://getnavi.dev,https://www.getnavi.dev
 
-```bash
-git clone https://github.com/besabusiness11-hub/navi.git
-cd navi
+ADMIN_TOKEN=...
+ADMIN_EMAIL=...
 
-# Frontend deps
-npm install
+POSTGRES_USER=navi
+POSTGRES_PASSWORD=...
+POSTGRES_DB=navi
+DATABASE_URL=postgresql://navi:POSTGRES_PASSWORD@postgres:5432/navi
+DATABASE_SSL=0
 
-# Backend deps
-cd server && npm install && cd ..
-
-# Configure env
-cp .env.example .env
-# edit .env with VITE_BACKEND_URL=http://localhost:4000
-
-cp .env.example server/.env   # if .env.example present, else create manually
-# edit server/.env with all keys (see "Env vars" below)
-```
-
-### Run
-
-```bash
-# Terminal 1 — frontend
-npm run dev
-
-# Terminal 2 — backend + agent (Windows)
-./start-navi.ps1
-
-# Or manually:
-node server/index.js          # terminal 2
-node server/agent.js start    # terminal 3
-```
-
-Open `http://localhost:5173`.
-
-### Env vars
-
-`server/.env`:
-```
-PORT=4000
-APP_URL=http://localhost:4000
-
-# LiveKit
-LIVEKIT_API_KEY=...
-LIVEKIT_API_SECRET=...
-LIVEKIT_WS_URL=wss://your-project.livekit.cloud
-LIVEKIT_WEBHOOK_SECRET=...   # = LIVEKIT_API_SECRET — consumes quota on room end
-
-# AI
-GROQ_API_KEY=...
-OPENAI_API_KEY=...
-DEEPGRAM_API_KEY=...   # optional
-
-# Stripe (optional) — run `node server/scripts/setup-stripe.js` to fill price IDs
 STRIPE_SECRET_KEY=...
 STRIPE_WEBHOOK_SECRET=...
 STRIPE_PRICE_STARTER=...
 STRIPE_PRICE_BUSINESS=...
 STRIPE_PRICE_AGENCY=...
-STRIPE_PACK_STARTER=...
-STRIPE_PACK_BUSINESS=...
-STRIPE_PACK_AGENCY=...
-STRIPE_TAX_ENABLED=0
 
-# Email (optional)
+LIVEKIT_API_KEY=...
+LIVEKIT_API_SECRET=...
+LIVEKIT_URL=wss://your-livekit-project.livekit.cloud
+LIVEKIT_WS_URL=wss://your-livekit-project.livekit.cloud
+LIVEKIT_WEBHOOK_SECRET=...
+
+GROQ_API_KEY=...
+OPENAI_API_KEY=...
+DEEPGRAM_API_KEY=...
+
+ELEVENLABS_API_KEY=...
+ELEVENLABS_VOICE_ID=...
+ELEVENLABS_MODEL_ID=eleven_multilingual_v2
+ELEVENLABS_OUTPUT_FORMAT=mp3_44100_128
+
 RESEND_API_KEY=...
 ```
 
+Notes:
+
+- `POSTGRES_PASSWORD` must match the password inside `DATABASE_URL`.
+- `ADMIN_TOKEN` is required to open `/admin`.
+- `VITE_BACKEND_URL` is build-time only. After changing it, rebuild the frontend.
+
 ---
 
-## Project structure
+## Local Development
 
-```
-navi/
-├── public/                    # vinyl PNGs, widget.js, liquid_waves_bg
-├── src/
-│   ├── App.jsx                # main landing — hero, problem, product, demo, pricing
-│   ├── VoiceAgent.jsx         # draggable voice widget (LiveKit room + AudioContext)
-│   ├── CookieBanner.jsx       # consent banner — unlocks audio on accept
-│   ├── Footer.jsx             # pull-up drawer with feedback form
-│   ├── Dashboard.jsx          # /dashboard route — analytics, agent settings
-│   ├── CheckoutSuccess.jsx    # /checkout/success post-Stripe
-│   ├── faviconAnimator.js     # canvas crossfade through vinyl colors
-│   └── main.jsx               # router (path-based)
-├── server/
-│   ├── index.js               # Express app — checkout, livekit, api routes
-│   ├── agent.js               # LiveKit voice agent worker (defineAgent)
-│   ├── db.js                  # node:sqlite — users, conversations, leads, sessions
-│   ├── email.js               # Resend transactional emails
-│   ├── crawler.js             # site crawler for the knowledge base
-│   ├── kb.js                  # KB vector store — chunks, embeddings, retrieval
-│   ├── fattureincloud.js      # SDI e-invoicing bridge (Italian fiscal)
-│   ├── keys.js                # API key / dashboard token generation
-│   ├── scripts/
-│   │   └── setup-stripe.js    # idempotent Stripe products + prices setup
-│   └── routes/
-│       ├── livekit.js         # token + dispatch
-│       ├── session.js         # quota-gated session start/end
-│       ├── checkout.js        # Stripe sessions (subscriptions + packs)
-│       ├── webhook.js         # Stripe webhooks
-│       ├── webhook-livekit.js # LiveKit room_finished → quota consume
-│       └── api.js             # dashboard + chat fallback + TTS proxy
-├── start-navi.ps1             # spawns server + agent (Windows)
-└── index.html
+Install dependencies:
+
+```bash
+npm install
+cd server
+npm install
+cd ..
 ```
 
----
+Run frontend:
 
-## Pages & flow
+```bash
+npm run dev
+```
 
-1. **Hero** — vinyl record, "Your website can speak"
-2. **Problem** — guidance gap rationale (auto-opens voice agent on scroll)
-3. **Process** — 3 steps: Learn → Speak → Guide
-4. **Product** — 6 vinyl color pickers (changes hero, widget, demo mockup live)
-5. **Demo** — fake browser with widget mockup
-6. **Pricing** — Free / Starter / Business / Agency
-7. **Marquee** — fictional client logos
-8. **Footer drawer** — pull-up panel with feedback form
+Run backend and agent manually:
 
----
+```bash
+node server/index.js
+node server/agent.js start
+```
 
-## Notable engineering
-
-- **Audio autoplay** — Cookie consent click → `window.__naviAC.resume()` (sticky AudioContext) → `createMediaStreamSource` from LiveKit `RemoteAudioTrack.mediaStreamTrack` connected to `destination` → playback bypasses HTMLAudioElement autoplay policy
-- **Draggable widget** — Two-layer motion.div: outer for entrance animation (opacity/scale, `originY: 1`), inner for `drag` with viewport-aware `dragConstraints` recomputed on resize. Position resets on every activation
-- **Footer drawer** — `motion.aside` with `drag="y"`, `dragMomentum: false`, snap on `onDragEnd` based on velocity / offset → never stops mid-way. Auto-opens when scroll position is within 80 px of page bottom
-- **Animated favicon** — 64×64 canvas, alpha-blended crossfade between 6 vinyl PNGs at 12 fps with `t²(3−2t)` smoothstep easing, written via `toDataURL`
-- **VAD tuning** — `minSpeechDuration: 0.1`, `minSilenceDuration: 0.65`, `minEndpointingDelay: 0.55`, `maxEndpointingDelay: 4.5` — picks up short utterances without cutting users off
+The local backend default is `http://localhost:8000`.
 
 ---
 
-## License
+## VPS Deploy Commands
 
-© Navi. All rights reserved.
+On the VPS:
+
+```bash
+cd ~/navi
+git pull
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail=120 web
+docker compose logs --tail=120 agent
+```
+
+Check API:
+
+```bash
+curl -I https://api.getnavi.dev/widget.js
+curl -I http://127.0.0.1:8000/
+```
+
+Rebuild frontend for `getnavi.dev`:
+
+```bash
+cd ~/navi
+npm install
+VITE_BACKEND_URL=https://api.getnavi.dev npm run build
+cp -r /var/www/navi/dist /var/www/navi/dist-backup-$(date +%Y%m%d-%H%M%S)
+rm -rf /var/www/navi/dist/*
+cp -r dist/* /var/www/navi/dist/
+curl -I https://getnavi.dev
+```
+
+---
+
+## Opening The Admin Dashboard
+
+1. Make sure the VPS `.env` has:
+
+```env
+ADMIN_TOKEN=your_long_secret_token
+```
+
+2. Restart the backend:
+
+```bash
+cd ~/navi
+docker compose up -d --force-recreate web agent
+```
+
+3. Rebuild and publish the frontend if `/admin` is not already in the deployed build:
+
+```bash
+cd ~/navi
+VITE_BACKEND_URL=https://api.getnavi.dev npm run build
+cp -r /var/www/navi/dist /var/www/navi/dist-backup-$(date +%Y%m%d-%H%M%S)
+rm -rf /var/www/navi/dist/*
+cp -r dist/* /var/www/navi/dist/
+```
+
+4. Open:
+
+```text
+https://getnavi.dev/admin
+```
+
+5. Paste the exact `ADMIN_TOKEN`.
+
+The token is stored only in the browser localStorage. If the token is wrong, the admin page will reject access.
+
+---
+
+## What Still Needs To Be Done
+
+### Task 5 - Full General Test
+
+Still to complete carefully:
+
+- Stripe checkout test.
+- Stripe webhook test.
+- User creation after payment.
+- User dashboard test.
+- Widget install on a test HTML page and on a real external customer-like page.
+- Text chat test.
+- Voice test:
+  - mic permission
+  - listening state
+  - speaking state
+  - stop button
+  - reconnect
+  - no double audio
+  - no robotic fallback unless providers fail
+- Knowledge base crawl.
+- Analytics update.
+- Admin overview data validation.
+- Provider error visibility.
+- Usage/cost tracking validation.
+
+### Production Hardening
+
+Recommended before many customers:
+
+- Add Redis-backed rate limiting if running multiple backend replicas.
+- Make quota increments fully atomic for high concurrency.
+- Schedule `scripts/uptime-check.js` on the VPS.
+- Schedule `scripts/pg-backup.sh` and verify backup restore.
+- Tune `PLAN_LIMITS` after two weeks of real usage data.
+- Add admin controls for customer disable/reactivate.
+- Add provider budget alerts with real cost calibration.
+- Add a formal staging environment separate from production.
+
+### Product Decisions Still Open
+
+- Final voice choice and ElevenLabs settings.
+- Final monthly quotas per plan.
+- Final prices and whether session packs remain.
+- Whether to enable Stripe Tax and invoicing.
+- Whether to expose a customer-facing usage/billing page.
+
+---
+
+## Verification Commands
+
+Useful before deploy:
+
+```bash
+node --check server/db.js
+node --check server/routes/api.js
+node --check server/routes/session.js
+node --check server/agent.js
+node --check server/index.js
+node --check server/quotaWatch.js
+node --check scripts/uptime-check.js
+npm run lint
+npm run build
+cd server && npm ci --omit=dev --dry-run
+```
+
+---
+
+## Notes
+
+- The current deploy is still test-mode for Stripe unless live keys are swapped in.
+- The admin backend is ready locally, but it must be deployed to VPS before `/admin` shows live data.
+- Do not commit `.env` or any real API keys.

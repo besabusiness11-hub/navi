@@ -3,7 +3,7 @@ import { motion, AnimatePresence, useMotionValue } from 'framer-motion';
 import { Keyboard, Mic, MicOff, Send, X } from 'lucide-react';
 import { Room, RoomEvent, Track } from 'livekit-client';
 
-const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:4000';
+const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000';
 
 const VALID_LANGS = new Set(['it','en','fr','de','es','pt','nl','pl','ru','ar','zh','ja','ko','tr','hi']);
 

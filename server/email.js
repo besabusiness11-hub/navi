@@ -4,19 +4,23 @@ const apiKey = process.env.RESEND_API_KEY;
 const resend = apiKey && !apiKey.startsWith('re_placeholder') ? new Resend(apiKey) : null;
 
 const PLANS = {
-  free:    { label: 'Free',    minutes: '100 total'   },
-  starter: { label: 'Starter', minutes: '800/mo'      },
-  growth:  { label: 'Growth',  minutes: '5,000/mo'    },
+  free:     { label: 'Free',     minutes: '50 sess/mo'    },
+  starter:  { label: 'Starter',  minutes: '200 sess/mo'   },
+  business: { label: 'Business', minutes: '600 sess/mo'   },
+  agency:   { label: 'Agency',   minutes: '1,500 sess/mo' },
 };
+
+const publicApiUrl = () =>
+  (process.env.PUBLIC_API_URL || process.env.VITE_BACKEND_URL || 'https://api.getnavi.dev').replace(/\/$/, '');
 
 export async function sendWelcomeEmail({ email, name, plan, apiKey, dashboardToken }) {
   if (!resend) { console.warn('[email] Resend not configured, skipping welcome email'); return; }
   const p = PLANS[plan] ?? PLANS.free;
   const dashboardUrl = `${process.env.APP_URL}/dashboard?token=${dashboardToken}`;
-  const embedCode = `<script src="${process.env.APP_URL}/widget.js" data-key="${apiKey}" defer></script>`;
+  const embedCode = `<script src="${publicApiUrl()}/widget.js" data-key="${apiKey}" defer></script>`;
 
   await resend.emails.send({
-    from: 'Navi <noreply@navi.ai>',
+    from: 'Navi <noreply@getnavi.dev>',
     to: email,
     subject: 'Your Navi widget is ready — install in 30 seconds',
     html: `<!DOCTYPE html>
@@ -95,7 +99,7 @@ export async function sendWelcomeEmail({ email, name, plan, apiKey, dashboardTok
 export async function sendLeadAlert({ ownerEmail, visitorName, visitorEmail, pageUrl, message }) {
   if (!resend) return;
   await resend.emails.send({
-    from: 'Navi <noreply@navi.ai>',
+    from: 'Navi <noreply@getnavi.dev>',
     to: ownerEmail,
     subject: `New lead captured by Navi${visitorName ? ` — ${visitorName}` : ''}`,
     html: `<div style="font-family:monospace;background:#06060a;color:rgba(255,255,255,0.7);padding:32px;max-width:500px;margin:0 auto;border-radius:12px;">
@@ -109,10 +113,47 @@ export async function sendLeadAlert({ ownerEmail, visitorName, visitorEmail, pag
   });
 }
 
+// Admin-facing alert — pushed by the quota-watch cron when a customer crosses a
+// usage threshold or a provider's daily spend exceeds budget. Sent to
+// ADMIN_EMAIL; no-op when Resend isn't configured.
+export async function sendAdminAlert({ subject, body, kind = 'info' }) {
+  if (!resend) { console.warn(`[email] admin alert dropped (no resend): ${subject}`); return; }
+  const to = process.env.ADMIN_EMAIL;
+  if (!to) { console.warn('[email] ADMIN_EMAIL not set; admin alert dropped'); return; }
+  const color = kind === 'critical' ? '#ff5252' : kind === 'warning' ? '#febc2e' : '#58c4ec';
+  await resend.emails.send({
+    from: 'Navi Admin <noreply@getnavi.dev>',
+    to,
+    subject: `[Navi ${kind.toUpperCase()}] ${subject}`,
+    html: `<div style="font-family:monospace;background:#06060a;color:rgba(255,255,255,0.72);padding:32px;max-width:620px;margin:0 auto;border-radius:12px;">
+      <p style="color:${color};font-size:11px;letter-spacing:0.22em;text-transform:uppercase;margin:0 0 16px;">● ${kind}</p>
+      <h2 style="color:white;font-size:18px;margin:0 0 14px;">${subject}</h2>
+      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:14px 16px;white-space:pre-wrap;font-size:13px;line-height:1.55;">${body}</div>
+    </div>`,
+  }).catch(err => console.error('[sendAdminAlert]', err.message));
+}
+
+// Per-customer 80% / 100% quota notification (sent to the customer themself).
+export async function sendUsageAlert({ ownerEmail, metric, pct, plan }) {
+  if (!resend) return;
+  const level = pct >= 1 ? 'reached' : 'approaching';
+  await resend.emails.send({
+    from: 'Navi <noreply@getnavi.dev>',
+    to: ownerEmail,
+    subject: `You're ${level} your ${metric} limit on the ${plan} plan`,
+    html: `<div style="font-family:monospace;background:#06060a;color:rgba(255,255,255,0.7);padding:32px;max-width:520px;margin:0 auto;border-radius:12px;">
+      <p style="color:#febc2e;font-size:11px;letter-spacing:0.2em;text-transform:uppercase;margin:0 0 16px;">● Usage alert</p>
+      <p style="margin:0 0 8px;color:white;font-size:16px;">${metric}: ${Math.round(pct * 100)}% used</p>
+      <p style="margin:0 0 20px;font-size:13px;">Your Navi agent will stop serving visitors when the limit is hit. Upgrade your plan or top up to avoid downtime.</p>
+      <a href="${process.env.APP_URL}/dashboard" style="display:inline-block;background:white;color:#06060a;padding:10px 22px;border-radius:100px;font-size:13px;font-weight:600;text-decoration:none;">Open dashboard</a>
+    </div>`,
+  }).catch(err => console.error('[sendUsageAlert]', err.message));
+}
+
 export async function sendUnknownAlert({ ownerEmail, question, pageUrl }) {
   if (!resend) return;
   await resend.emails.send({
-    from: 'Navi <noreply@navi.ai>',
+    from: 'Navi <noreply@getnavi.dev>',
     to: ownerEmail,
     subject: 'Navi could not answer a question',
     html: `<div style="font-family:monospace;background:#06060a;color:rgba(255,255,255,0.7);padding:32px;max-width:500px;margin:0 auto;border-radius:12px;">

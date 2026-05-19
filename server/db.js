@@ -64,8 +64,18 @@ const initSchema = () => run(`
     kb_built_at            BIGINT,
     kb_pages               INTEGER DEFAULT 0,
     proactive_delay        INTEGER DEFAULT 120,
-    auto_palette           INTEGER DEFAULT 0
+    auto_palette           INTEGER DEFAULT 0,
+    voice_seconds_used     BIGINT  DEFAULT 0,
+    tts_chars_used         BIGINT  DEFAULT 0,
+    llm_tokens_used        BIGINT  DEFAULT 0,
+    kb_pages_used          INTEGER DEFAULT 0
   );
+
+  -- Idempotent column adds for upgrades from earlier schemas.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS voice_seconds_used BIGINT DEFAULT 0;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS tts_chars_used     BIGINT DEFAULT 0;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS llm_tokens_used    BIGINT DEFAULT 0;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS kb_pages_used      INTEGER DEFAULT 0;
 
   CREATE TABLE IF NOT EXISTS conversations (
     id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -130,6 +140,52 @@ const initSchema = () => run(`
     created_at BIGINT  DEFAULT extract(epoch from now())::bigint
   );
   CREATE INDEX IF NOT EXISTS idx_kb_user ON kb_chunks(user_id);
+
+  CREATE TABLE IF NOT EXISTS usage_events (
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id        BIGINT REFERENCES users(id),
+    provider       TEXT NOT NULL,
+    metric         TEXT NOT NULL,
+    amount         NUMERIC NOT NULL DEFAULT 0,
+    cost_eur_cents INTEGER DEFAULT 0,
+    meta           JSONB DEFAULT '{}'::jsonb,
+    created_at     BIGINT DEFAULT extract(epoch from now())::bigint
+  );
+  CREATE INDEX IF NOT EXISTS idx_usage_events_user_created ON usage_events(user_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_usage_events_metric_created ON usage_events(metric, created_at);
+
+  CREATE TABLE IF NOT EXISTS provider_errors (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id     BIGINT REFERENCES users(id),
+    provider    TEXT NOT NULL,
+    route       TEXT,
+    status      INTEGER,
+    error       TEXT,
+    meta        JSONB DEFAULT '{}'::jsonb,
+    created_at  BIGINT DEFAULT extract(epoch from now())::bigint
+  );
+  CREATE INDEX IF NOT EXISTS idx_provider_errors_created ON provider_errors(created_at);
+  CREATE INDEX IF NOT EXISTS idx_provider_errors_provider ON provider_errors(provider, created_at);
+
+  CREATE TABLE IF NOT EXISTS health_checks (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    target      TEXT NOT NULL,
+    ok          INTEGER NOT NULL DEFAULT 0,
+    latency_ms  INTEGER,
+    error       TEXT,
+    created_at  BIGINT DEFAULT extract(epoch from now())::bigint
+  );
+  CREATE INDEX IF NOT EXISTS idx_health_target_created ON health_checks(target, created_at);
+
+  CREATE TABLE IF NOT EXISTS admin_alerts (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    kind        TEXT NOT NULL,
+    user_id     BIGINT REFERENCES users(id),
+    payload     JSONB DEFAULT '{}'::jsonb,
+    sent        INTEGER DEFAULT 0,
+    created_at  BIGINT DEFAULT extract(epoch from now())::bigint,
+    UNIQUE(kind, user_id, created_at)
+  );
 `);
 
 // web + agent boot together → concurrent `CREATE TABLE IF NOT EXISTS` can race
@@ -150,6 +206,45 @@ export const PLAN_QUOTA = { free: 50, starter: 200, business: 600, agency: 1500 
 export const SESSION_COST_CENTS = 8;
 
 export const planQuota = (plan) => PLAN_QUOTA[plan] ?? PLAN_QUOTA.free;
+
+// Per-plan caps for the non-session metrics. Derived from typical session
+// shape (~4 min voice / ~600 TTS chars / ~4k LLM tokens) × plan sessions, with
+// headroom. These protect margin against pathological abuse (one customer
+// burning more LLM/TTS than their plan revenue can cover).
+//
+// Units:
+//   voice_seconds_used  — seconds of LiveKit voice session time
+//   tts_chars_used      — characters synthesized via /api/tts proxy
+//   llm_tokens_used     — total tokens charged by Groq on /api/chat
+//   kb_pages_used       — pages crawled into the knowledge base
+export const PLAN_LIMITS = {
+  free:     { voice_seconds:  3600,  tts_chars:    50_000, llm_tokens:    200_000, kb_pages:  30 },
+  starter:  { voice_seconds: 18000,  tts_chars:   300_000, llm_tokens:  1_200_000, kb_pages: 100 },
+  business: { voice_seconds: 60000,  tts_chars: 1_000_000, llm_tokens:  4_000_000, kb_pages: 300 },
+  agency:   { voice_seconds: 150000, tts_chars: 2_500_000, llm_tokens: 10_000_000, kb_pages: 800 },
+};
+
+export const planLimits = (plan) => PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+
+// Pure — derive remaining headroom across every metric for a loaded user row.
+export const getUsageLimits = (user) => {
+  const caps = planLimits(user.plan);
+  const bonus = user.bonus_sessions ?? 0;
+  const mk = (used, limit) => {
+    const u = Number(used) || 0;
+    const remaining = Math.max(0, limit - u);
+    return { used: u, limit, remaining, pct: limit > 0 ? u / limit : 0, exhausted: u >= limit };
+  };
+  return {
+    sessions:      { ...mk(user.session_count ?? 0, planQuota(user.plan)), bonus,
+                     remaining: Math.max(0, planQuota(user.plan) - (user.session_count ?? 0)) + bonus,
+                     exhausted: (Math.max(0, planQuota(user.plan) - (user.session_count ?? 0)) + bonus) <= 0 },
+    voice_seconds: mk(user.voice_seconds_used,  caps.voice_seconds),
+    tts_chars:     mk(user.tts_chars_used,      caps.tts_chars),
+    llm_tokens:    mk(user.llm_tokens_used,     caps.llm_tokens),
+    kb_pages:      mk(user.kb_pages_used,       caps.kb_pages),
+  };
+};
 
 // ── User helpers ──────────────────────────────────────────────────────────────
 export const getUserByKey = (api_key) =>
@@ -213,6 +308,16 @@ export const consumeSession = async (user) => {
 export const addBonusSessions = (userId, n) =>
   run('UPDATE users SET bonus_sessions = bonus_sessions + $1 WHERE id = $2', [n, userId]);
 
+// Increment a usage counter on the user row. `column` is whitelisted to the
+// known *_used columns so callers can't inject — bumpUsage('id; DROP …') fails.
+const USAGE_COLUMNS = new Set(['voice_seconds_used', 'tts_chars_used', 'llm_tokens_used', 'kb_pages_used']);
+export const bumpUsage = async (userId, column, amount) => {
+  if (!USAGE_COLUMNS.has(column)) throw new Error(`bumpUsage: unknown column ${column}`);
+  const n = Number(amount) || 0;
+  if (!n) return;
+  await run(`UPDATE users SET ${column} = ${column} + $1 WHERE id = $2`, [n, userId]);
+};
+
 // Cron: reset session_count for users whose cycle anniversary day == today.
 // Guarded by last_quota_reset so an hourly run only resets once per day.
 export const resetExpiredCycles = async () => {
@@ -227,7 +332,14 @@ export const resetExpiredCycles = async () => {
     const anchorDay = Math.min(start.getDate(), dim);
     const alreadyResetToday = r.last_quota_reset != null && Number(r.last_quota_reset) >= startOfTodayUnix;
     if (now.getDate() === anchorDay && !alreadyResetToday) {
-      await run('UPDATE users SET session_count = 0, last_quota_reset = extract(epoch from now())::bigint WHERE id = $1', [r.id]);
+      await run(`UPDATE users SET
+        session_count = 0,
+        voice_seconds_used = 0,
+        tts_chars_used = 0,
+        llm_tokens_used = 0,
+        kb_pages_used = 0,
+        last_quota_reset = extract(epoch from now())::bigint
+        WHERE id = $1`, [r.id]);
       reset++;
     }
   }
@@ -360,6 +472,309 @@ export const getCostStats = async (user_id) => {
       AND started_at >= extract(epoch from date_trunc('month', now()))::bigint
   `, [user_id]);
   return { cost_cents: Number(cycle.cents), sessions: Number(cycle.n) };
+};
+
+export const logUsageEvent = ({ user_id = null, provider, metric, amount = 0, cost_eur_cents = 0, meta = {} }) =>
+  run(`
+    INSERT INTO usage_events (user_id, provider, metric, amount, cost_eur_cents, meta)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+  `, [user_id, provider, metric, amount, cost_eur_cents, JSON.stringify(meta ?? {})]);
+
+// ── Provider error log ───────────────────────────────────────────────────────
+export const logProviderError = ({ user_id = null, provider, route = null, status = null, error = '', meta = {} }) =>
+  run(`
+    INSERT INTO provider_errors (user_id, provider, route, status, error, meta)
+    VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+  `, [user_id, provider, route, status, String(error).slice(0, 2000), JSON.stringify(meta ?? {})])
+    .catch(err => console.error('[logProviderError]', err.message));
+
+export const getRecentProviderErrors = ({ days = 7, limit = 200 } = {}) => {
+  const safeDays = Math.min(Math.max(Number(days) || 7, 1), 90);
+  return all(`
+    SELECT id, user_id, provider, route, status, error, meta, created_at
+    FROM provider_errors
+    WHERE created_at >= extract(epoch from (now() - ($1::int || ' days')::interval))::bigint
+    ORDER BY created_at DESC
+    LIMIT $2
+  `, [safeDays, limit]);
+};
+
+export const getProviderErrorSummary = ({ days = 7 } = {}) => {
+  const safeDays = Math.min(Math.max(Number(days) || 7, 1), 90);
+  return all(`
+    SELECT provider, COUNT(*)::bigint count,
+           MAX(created_at)::bigint last_at
+    FROM provider_errors
+    WHERE created_at >= extract(epoch from (now() - ($1::int || ' days')::interval))::bigint
+    GROUP BY provider ORDER BY count DESC
+  `, [safeDays]);
+};
+
+// ── Health checks ────────────────────────────────────────────────────────────
+export const logHealthCheck = ({ target, ok, latency_ms = null, error = null }) =>
+  run(`
+    INSERT INTO health_checks (target, ok, latency_ms, error)
+    VALUES ($1, $2, $3, $4)
+  `, [target, ok ? 1 : 0, latency_ms, error ? String(error).slice(0, 500) : null]);
+
+export const getRecentHealth = ({ hours = 24 } = {}) => {
+  const safeHours = Math.min(Math.max(Number(hours) || 24, 1), 168);
+  return all(`
+    SELECT target,
+      COUNT(*)::bigint total,
+      COUNT(*) FILTER (WHERE ok = 1)::bigint ok_count,
+      AVG(latency_ms)::int avg_latency,
+      MAX(created_at)::bigint last_at,
+      (SELECT ok FROM health_checks h2 WHERE h2.target = h.target ORDER BY h2.created_at DESC LIMIT 1) last_ok
+    FROM health_checks h
+    WHERE created_at >= extract(epoch from (now() - ($1::int || ' hours')::interval))::bigint
+    GROUP BY target ORDER BY target
+  `, [safeHours]);
+};
+
+// ── Admin alerts ─────────────────────────────────────────────────────────────
+export const recordAdminAlert = async ({ kind, user_id = null, payload = {} }) => {
+  await run(`
+    INSERT INTO admin_alerts (kind, user_id, payload)
+    VALUES ($1, $2, $3::jsonb)
+    ON CONFLICT DO NOTHING
+  `, [kind, user_id, JSON.stringify(payload ?? {})]);
+};
+
+// True iff a same-kind alert for this user was emitted within the last `hours`.
+// Used to de-duplicate the 80%/100% quota emails so the cron doesn't spam.
+export const alertEmittedRecently = async ({ kind, user_id = null, hours = 24 }) => {
+  const row = await one(`
+    SELECT 1 FROM admin_alerts
+    WHERE kind = $1
+      AND (user_id IS NOT DISTINCT FROM $2)
+      AND created_at >= extract(epoch from (now() - ($3::int || ' hours')::interval))::bigint
+    LIMIT 1
+  `, [kind, user_id, hours]);
+  return !!row;
+};
+
+// Sum of provider costs (cents) across all users in the last `hours`.
+export const getProviderCostWindow = ({ provider, hours = 24 }) =>
+  one(`
+    SELECT COALESCE(SUM(cost_eur_cents), 0)::bigint cents
+    FROM usage_events
+    WHERE provider = $1
+      AND created_at >= extract(epoch from (now() - ($2::int || ' hours')::interval))::bigint
+  `, [provider, hours]);
+
+// Users whose projected cost > threshold of plan revenue, for the alert cron.
+export const getCustomersAtRisk = async ({ days = 30, marginThresholdPct = 70 } = {}) => {
+  const overview = await getAdminOverview({ days });
+  return overview.customers.filter(c => {
+    if (!c.revenue_cents) return false;
+    return c.estimated_cost_cents > (c.revenue_cents * marginThresholdPct) / 100;
+  });
+};
+
+const PLAN_REVENUE_CENTS = { free: 0, starter: 4900, business: 9900, agency: 19900 };
+
+export const getAdminOverview = async ({ days = 30 } = {}) => {
+  const safeDays = Math.min(Math.max(Number(days) || 30, 1), 365);
+  const params = [safeDays];
+  const totals = await one(`
+    WITH bounds AS (
+      SELECT extract(epoch from (now() - ($1::int || ' days')::interval))::bigint AS since
+    ),
+    session_totals AS (
+      SELECT
+        COUNT(*)::bigint sessions,
+        COALESCE(SUM(duration_sec),0)::bigint voice_seconds,
+        COALESCE(SUM(cost_eur_cents),0)::bigint session_cost_cents
+      FROM sessions, bounds
+      WHERE started_at >= bounds.since
+    ),
+    conversation_totals AS (
+      SELECT COUNT(*)::bigint conversations
+      FROM conversations, bounds
+      WHERE created_at >= bounds.since
+    ),
+    lead_totals AS (
+      SELECT COUNT(*)::bigint leads
+      FROM leads, bounds
+      WHERE created_at >= bounds.since
+    ),
+    usage_totals AS (
+      SELECT
+        COALESCE(SUM(CASE WHEN metric = 'tts_chars' THEN amount ELSE 0 END),0)::bigint tts_chars,
+        COALESCE(SUM(CASE WHEN metric = 'stt_chars' THEN amount ELSE 0 END),0)::bigint stt_chars,
+        COALESCE(SUM(CASE WHEN metric = 'llm_tokens' THEN amount ELSE 0 END),0)::bigint llm_tokens,
+        COALESCE(SUM(CASE WHEN metric = 'kb_pages' THEN amount ELSE 0 END),0)::bigint kb_pages_crawled,
+        COALESCE(SUM(cost_eur_cents),0)::bigint usage_cost_cents
+      FROM usage_events, bounds
+      WHERE created_at >= bounds.since
+    )
+    SELECT
+      (SELECT COUNT(*) FROM users)::bigint users,
+      (SELECT COUNT(*) FROM users WHERE widget_seen_at IS NOT NULL)::bigint installed_widgets,
+      (SELECT COUNT(*) FROM users WHERE agent_enabled = 1)::bigint active_agents,
+      (SELECT COALESCE(SUM(CASE plan
+        WHEN 'starter' THEN 4900
+        WHEN 'business' THEN 9900
+        WHEN 'agency' THEN 19900
+        ELSE 0 END),0) FROM users)::bigint monthly_recurring_cents,
+      session_totals.*,
+      conversation_totals.*,
+      lead_totals.*,
+      usage_totals.*
+    FROM session_totals, conversation_totals, lead_totals, usage_totals
+  `, params);
+
+  const customers = await all(`
+    WITH bounds AS (
+      SELECT extract(epoch from (now() - ($1::int || ' days')::interval))::bigint AS since
+    ),
+    s AS (
+      SELECT user_id, COUNT(*) sessions, COALESCE(SUM(duration_sec),0) voice_seconds,
+        COALESCE(SUM(cost_eur_cents),0) session_cost_cents, MAX(started_at) last_session_at
+      FROM sessions, bounds WHERE started_at >= bounds.since GROUP BY user_id
+    ),
+    c AS (
+      SELECT user_id, COUNT(*) conversations, MAX(created_at) last_conversation_at
+      FROM conversations, bounds WHERE created_at >= bounds.since GROUP BY user_id
+    ),
+    l AS (
+      SELECT user_id, COUNT(*) leads FROM leads, bounds WHERE created_at >= bounds.since GROUP BY user_id
+    ),
+    k AS (
+      SELECT user_id, COUNT(*) kb_chunks FROM kb_chunks GROUP BY user_id
+    ),
+    u AS (
+      SELECT user_id,
+        COALESCE(SUM(CASE WHEN metric = 'tts_chars' THEN amount ELSE 0 END),0) tts_chars,
+        COALESCE(SUM(CASE WHEN metric = 'stt_chars' THEN amount ELSE 0 END),0) stt_chars,
+        COALESCE(SUM(CASE WHEN metric = 'llm_tokens' THEN amount ELSE 0 END),0) llm_tokens,
+        COALESCE(SUM(CASE WHEN metric = 'kb_pages' THEN amount ELSE 0 END),0) kb_pages_crawled,
+        COALESCE(SUM(cost_eur_cents),0) usage_cost_cents
+      FROM usage_events, bounds WHERE created_at >= bounds.since GROUP BY user_id
+    )
+    SELECT
+      users.id, users.email, users.name, users.plan, users.site_url, users.agent_enabled,
+      users.widget_seen_at, users.last_seen, users.session_count, users.bonus_sessions,
+      users.kb_status, users.kb_pages,
+      users.voice_seconds_used, users.tts_chars_used, users.llm_tokens_used, users.kb_pages_used,
+      COALESCE(s.sessions,0)::bigint sessions,
+      COALESCE(s.voice_seconds,0)::bigint voice_seconds,
+      COALESCE(s.session_cost_cents,0)::bigint session_cost_cents,
+      COALESCE(c.conversations,0)::bigint conversations,
+      COALESCE(l.leads,0)::bigint leads,
+      COALESCE(k.kb_chunks,0)::bigint kb_chunks,
+      COALESCE(u.tts_chars,0)::bigint tts_chars,
+      COALESCE(u.stt_chars,0)::bigint stt_chars,
+      COALESCE(u.llm_tokens,0)::bigint llm_tokens,
+      COALESCE(u.kb_pages_crawled,0)::bigint kb_pages_crawled,
+      COALESCE(u.usage_cost_cents,0)::bigint usage_cost_cents,
+      COALESCE(s.last_session_at, c.last_conversation_at, users.last_seen)::bigint activity_at
+    FROM users
+    LEFT JOIN s ON s.user_id = users.id
+    LEFT JOIN c ON c.user_id = users.id
+    LEFT JOIN l ON l.user_id = users.id
+    LEFT JOIN k ON k.user_id = users.id
+    LEFT JOIN u ON u.user_id = users.id
+    ORDER BY activity_at DESC NULLS LAST, users.id DESC
+  `, params);
+
+  const byProvider = await all(`
+    WITH bounds AS (
+      SELECT extract(epoch from (now() - ($1::int || ' days')::interval))::bigint AS since
+    )
+    SELECT provider, metric, COALESCE(SUM(amount),0)::bigint amount,
+      COALESCE(SUM(cost_eur_cents),0)::bigint cost_cents
+    FROM usage_events, bounds
+    WHERE created_at >= bounds.since
+    GROUP BY provider, metric
+    ORDER BY provider, metric
+  `, params);
+
+  const [providerErrors, health] = await Promise.all([
+    getProviderErrorSummary({ days: Math.min(safeDays, 90) }),
+    getRecentHealth({ hours: 24 }),
+  ]);
+
+  return {
+    days: safeDays,
+    totals: {
+      users: Number(totals.users),
+      installed_widgets: Number(totals.installed_widgets),
+      active_agents: Number(totals.active_agents),
+      monthly_recurring_cents: Number(totals.monthly_recurring_cents),
+      sessions: Number(totals.sessions),
+      voice_seconds: Number(totals.voice_seconds),
+      session_cost_cents: Number(totals.session_cost_cents),
+      conversations: Number(totals.conversations),
+      leads: Number(totals.leads),
+      tts_chars: Number(totals.tts_chars),
+      stt_chars: Number(totals.stt_chars),
+      llm_tokens: Number(totals.llm_tokens),
+      kb_pages_crawled: Number(totals.kb_pages_crawled),
+      usage_cost_cents: Number(totals.usage_cost_cents),
+    },
+    customers: customers.map(row => {
+      const planRevenue = PLAN_REVENUE_CENTS[row.plan] ?? 0;
+      const cost = Number(row.session_cost_cents) + Number(row.usage_cost_cents);
+      const caps = planLimits(row.plan);
+      const usagePct = {
+        sessions:      planQuota(row.plan) ? (Number(row.session_count) || 0) / planQuota(row.plan) : 0,
+        voice_seconds: caps.voice_seconds ? (Number(row.voice_seconds_used) || 0) / caps.voice_seconds : 0,
+        tts_chars:     caps.tts_chars     ? (Number(row.tts_chars_used)     || 0) / caps.tts_chars     : 0,
+        llm_tokens:    caps.llm_tokens    ? (Number(row.llm_tokens_used)    || 0) / caps.llm_tokens    : 0,
+        kb_pages:      caps.kb_pages      ? (Number(row.kb_pages_used)      || 0) / caps.kb_pages      : 0,
+      };
+      const maxPct = Math.max(...Object.values(usagePct));
+      return {
+        ...row,
+        agent_enabled: !!row.agent_enabled,
+        sessions: Number(row.sessions),
+        voice_seconds: Number(row.voice_seconds),
+        session_cost_cents: Number(row.session_cost_cents),
+        conversations: Number(row.conversations),
+        leads: Number(row.leads),
+        kb_chunks: Number(row.kb_chunks),
+        tts_chars: Number(row.tts_chars),
+        stt_chars: Number(row.stt_chars),
+        llm_tokens: Number(row.llm_tokens),
+        kb_pages_crawled: Number(row.kb_pages_crawled),
+        usage_cost_cents: Number(row.usage_cost_cents),
+        voice_seconds_used: Number(row.voice_seconds_used),
+        tts_chars_used:     Number(row.tts_chars_used),
+        llm_tokens_used:    Number(row.llm_tokens_used),
+        kb_pages_used:      Number(row.kb_pages_used),
+        revenue_cents: planRevenue,
+        estimated_cost_cents: cost,
+        margin_cents: planRevenue - cost,
+        margin_pct: planRevenue > 0 ? Math.round(((planRevenue - cost) / planRevenue) * 100) : null,
+        plan_limits: caps,
+        session_limit: planQuota(row.plan),
+        usage_pct: usagePct,
+        max_usage_pct: maxPct,
+        at_risk: planRevenue > 0 && cost > planRevenue * 0.7,
+      };
+    }),
+    byProvider: byProvider.map(row => ({
+      provider: row.provider,
+      metric: row.metric,
+      amount: Number(row.amount),
+      cost_cents: Number(row.cost_cents),
+    })),
+    providerErrors: providerErrors.map(row => ({
+      provider: row.provider,
+      count: Number(row.count),
+      last_at: Number(row.last_at),
+    })),
+    health: health.map(row => ({
+      target: row.target,
+      total: Number(row.total),
+      ok_count: Number(row.ok_count),
+      avg_latency: row.avg_latency == null ? null : Number(row.avg_latency),
+      last_at: Number(row.last_at),
+      last_ok: !!row.last_ok,
+    })),
+  };
 };
 
 export const getAnalytics = async (user_id) => {

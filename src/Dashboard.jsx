@@ -67,7 +67,7 @@ const PLATFORMS = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:4000';
+const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000';
 const vinylById = (id) => VINYLS.find(v => v.id === id) ?? VINYLS[0];
 
 const buildWeekData = (weekArr) => {

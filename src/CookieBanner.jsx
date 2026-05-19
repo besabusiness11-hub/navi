@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const KEY = 'navi_consent';
@@ -30,7 +30,7 @@ const CookieBanner = ({ vinyl = '/vinile-finale.png', onAccept }) => {
     try {
       if (!window.__naviAC) window.__naviAC = new (window.AudioContext || window.webkitAudioContext)();
       window.__naviAC.resume().catch(() => {});
-    } catch {}
+    } catch { /* AudioContext unavailable — ignore */ }
     setVisible(false);
     onAccept?.();
   };

@@ -15,13 +15,25 @@ import * as deepgram from '@livekit/agents-plugin-deepgram';
 import * as elevenlabs from '@livekit/agents-plugin-elevenlabs';
 import * as silero from '@livekit/agents-plugin-silero';
 import { fileURLToPath } from 'url';
-import { getUserById, getKBChunks, getConversationsByVisitor } from './db.js';
+import {
+  getUserById, getKBChunks, getConversationsByVisitor,
+  bumpUsage, logUsageEvent, logProviderError,
+} from './db.js';
 
 // Shared language map (id → display name).
 const LANG_NAMES = {
   it: 'Italian', en: 'English', fr: 'French', de: 'German', es: 'Spanish',
   pt: 'Portuguese', nl: 'Dutch', pl: 'Polish', ru: 'Russian', ar: 'Arabic',
   zh: 'Mandarin Chinese', ja: 'Japanese', ko: 'Korean', tr: 'Turkish', hi: 'Hindi',
+};
+
+const estimateVoiceCents = (provider, metric, amount) => {
+  const n = Number(amount) || 0;
+  if (metric === 'tts_chars' && provider === 'elevenlabs') return Math.ceil((n / 1000000) * 3000);
+  if (metric === 'tts_chars' && provider === 'openai') return Math.ceil((n / 1000000) * 1500);
+  if (metric === 'llm_tokens' && provider === 'groq') return Math.ceil((n / 1000000) * 80);
+  if (metric === 'stt_chars' && provider === 'deepgram') return Math.ceil((n / 1000000) * 600);
+  return 0;
 };
 
 // ─── Site crawler ─────────────────────────────────────────────────────────────
@@ -351,6 +363,29 @@ export default defineAgent({
       const raw = item.textContent ?? '';
       if (!raw) return;
       const clean = raw.replace(/\n?\[NAVIGATE:\w+\]/g, '').trim();
+      if (user?.id && clean) {
+        const ttsProvider = elevenKey && !elevenKey.startsWith('your_') ? 'elevenlabs' : 'openai';
+        const chars = clean.length;
+        const approxTokens = Math.max(1, Math.ceil(clean.length / 4));
+        logUsageEvent({
+          user_id: user.id,
+          provider: ttsProvider,
+          metric: 'tts_chars',
+          amount: chars,
+          cost_eur_cents: estimateVoiceCents(ttsProvider, 'tts_chars', chars),
+          meta: { route: 'voice_agent', estimated: true },
+        }).catch(err => console.error('[usage/agent-tts]', err.message));
+        bumpUsage(user.id, 'tts_chars_used', chars).catch(err => console.error('[bumpUsage/agent-tts]', err.message));
+        logUsageEvent({
+          user_id: user.id,
+          provider: 'groq',
+          metric: 'llm_tokens',
+          amount: approxTokens,
+          cost_eur_cents: estimateVoiceCents('groq', 'llm_tokens', approxTokens),
+          meta: { route: 'voice_agent', estimated: true },
+        }).catch(err => console.error('[usage/agent-llm]', err.message));
+        bumpUsage(user.id, 'llm_tokens_used', approxTokens).catch(err => console.error('[bumpUsage/agent-llm]', err.message));
+      }
       try {
         await ctx.room.localParticipant.publishData(
           new TextEncoder().encode(JSON.stringify({ type: 'agent_text', text: clean })),
@@ -369,7 +404,17 @@ export default defineAgent({
     });
 
     sess.on('error', (ev) => {
-      console.error('[Navi] session error:', ev?.error?.message ?? ev?.message ?? ev);
+      const message = ev?.error?.message ?? ev?.message ?? String(ev);
+      console.error('[Navi] session error:', message);
+      if (user?.id) {
+        logProviderError({
+          user_id: user.id,
+          provider: 'livekit-agent',
+          route: 'voice_session',
+          error: message,
+          meta: { room: ctx.room?.name },
+        });
+      }
     });
 
     // Mirror the final user transcript to the widget for display only.
@@ -380,6 +425,16 @@ export default defineAgent({
       if (!ev.isFinal) return;
       const t = ev.transcript ?? '';
       console.log(`[Navi] user_input_transcribed final="${t.slice(0, 120)}"`);
+      if (user?.id && t) {
+        logUsageEvent({
+          user_id: user.id,
+          provider: 'deepgram',
+          metric: 'stt_chars',
+          amount: t.length,
+          cost_eur_cents: estimateVoiceCents('deepgram', 'stt_chars', t.length),
+          meta: { route: 'voice_agent', estimated: true },
+        }).catch(err => console.error('[usage/agent-stt]', err.message));
+      }
       try {
         await ctx.room.localParticipant.publishData(
           new TextEncoder().encode(JSON.stringify({ type: 'transcript', text: t })),

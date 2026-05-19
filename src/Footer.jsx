@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence, useMotionValue } from 'framer-motion';
 import { Send, Check, X } from 'lucide-react';
 
@@ -38,7 +38,7 @@ const Footer = ({ vinyl = '/vinile-finale.png' }) => {
         const log = JSON.parse(localStorage.getItem(FB_KEY) || '[]');
         log.push(payload);
         localStorage.setItem(FB_KEY, JSON.stringify(log.slice(-50)));
-      } catch { }
+      } catch { /* localStorage unavailable — ignore */ }
       // Optional backend POST — silently ignored if endpoint missing
       await fetch('/api/feedback', {
         method: 'POST',
@@ -266,7 +266,7 @@ const Footer = ({ vinyl = '/vinile-finale.png' }) => {
             <div className="mt-12 sm:mt-16 pt-6 sm:pt-8 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-3 text-[10px] font-mono tracking-[0.18em] uppercase text-white/30">
               <span>© {new Date().getFullYear()} Navi · All rights reserved</span>
               <div className="flex items-center gap-4 sm:gap-6">
-                <a href="mailto:hello@navi.so" className="hover:text-white/70 transition-colors">Contact</a>
+                <a href="mailto:hello@getnavi.dev" className="hover:text-white/70 transition-colors">Contact</a>
                 <a href="#pricing" onClick={() => setOpen(false)} className="hover:text-white/70 transition-colors">Pricing</a>
                 <a href="#product" onClick={() => setOpen(false)} className="hover:text-white/70 transition-colors">Product</a>
               </div>

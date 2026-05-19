@@ -11,7 +11,7 @@ const PLANS = {
   agency:   { label: 'Agency',   price: '€199', sub: '/mo', desc: '1,500 sessions/mo · 10 agents · white-label + packs'    },
 };
 
-const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
+const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
 /* ─── Vinyl logo mark ─────────────────────────────────── */
 const NaviLogo = () => (

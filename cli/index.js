@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import open from 'open';
 
-const BASE = process.env.NAVI_URL || 'https://navi.ai';
+const BASE = process.env.NAVI_URL || 'https://getnavi.dev';
 const [, , cmd, arg] = process.argv;
 
 const help = () => {
@@ -18,15 +18,6 @@ const help = () => {
     npx navi-cli set-token abc123...
     npx navi-cli open
   `);
-};
-
-const TOKEN_FILE = new URL('.navi-token', import.meta.url);
-
-const readToken = () => {
-  try {
-    const { readFileSync } = await import('fs');
-    return readFileSync(TOKEN_FILE.pathname, 'utf8').trim();
-  } catch { return null; }
 };
 
 async function main() {

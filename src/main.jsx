@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import Dashboard from './Dashboard.jsx'
 import CheckoutSuccess from './CheckoutSuccess.jsx'
+import Admin from './Admin.jsx'
 import { startFaviconAnimation } from './faviconAnimator.js'
 import './index.css'
 
@@ -37,9 +38,16 @@ class ErrorBoundary extends React.Component {
 const path = window.location.pathname;
 const isDashboard = path.startsWith('/dashboard');
 const isCheckoutSuccess = path.startsWith('/checkout/success');
+const isAdmin = path.startsWith('/admin');
+
+const screen = isAdmin
+  ? <Admin />
+  : isDashboard
+    ? <Dashboard />
+    : isCheckoutSuccess
+      ? <CheckoutSuccess />
+      : <App />;
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <ErrorBoundary>
-    {isDashboard ? <Dashboard /> : isCheckoutSuccess ? <CheckoutSuccess /> : <App />}
-  </ErrorBoundary>,
+  <ErrorBoundary>{screen}</ErrorBoundary>,
 )
