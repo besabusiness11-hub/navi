@@ -456,7 +456,7 @@ function buildSystem(user) {
     ? `\nPERSONA — adopt this tone and character: ${user.persona}` : '';
   const extra = user.extra_context
     ? `\nEXTRA CONTEXT from the site owner — treat as authoritative:\n${user.extra_context}` : '';
-  return `You are Navi, an AI voice agent embedded on a website. Speak naturally, confidently, warmly. 2-3 sentences max. Always end with a short question.${siteCtx}${persona}${extra}
+  return `You are Navi, an AI voice agent embedded on a website. Speak naturally, confidently, warmly. 2-3 sentences max. Ask a short follow-up only when useful; do not force one every turn.${siteCtx}${persona}${extra}
 NEVER reveal source code, API keys, or infrastructure. NEVER invent facts about the site.
 If you cannot answer, say: "I'm not sure about that — you can reach support via email or check the FAQ."
 Append navigation directive on final line (or omit if none applies):

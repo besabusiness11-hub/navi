@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue } from 'framer-motion';
-import { Mic, MicOff, X } from 'lucide-react';
+import { Keyboard, Mic, MicOff, Send, X } from 'lucide-react';
 import { Room, RoomEvent, Track } from 'livekit-client';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:4000';
-const VISITOR_KEY = 'navi_visitor_v1';
 
 const VALID_LANGS = new Set(['it','en','fr','de','es','pt','nl','pl','ru','ar','zh','ja','ko','tr','hi']);
 
@@ -12,10 +11,6 @@ const SPEECH_LANG = {
   it:'it-IT', en:'en-US', fr:'fr-FR', de:'de-DE', es:'es-ES',
   pt:'pt-PT', nl:'nl-NL', pl:'pl-PL', ru:'ru-RU', ar:'ar-SA',
   zh:'zh-CN', ja:'ja-JP', ko:'ko-KR', tr:'tr-TR', hi:'hi-IN',
-};
-
-const loadVisitor = () => {
-  try { return JSON.parse(localStorage.getItem(VISITOR_KEY)); } catch { return null; }
 };
 
 const VoiceAgent = ({
@@ -30,6 +25,8 @@ const VoiceAgent = ({
   const [statusText,    setStatusText]    = useState('Connecting…');
   const [transcript,    setTranscript]    = useState('');
   const [isConnected,   setIsConnected]   = useState(false);
+  const [textMode,      setTextMode]      = useState(false);
+  const [textInput,     setTextInput]     = useState('');
 
   const roomRef          = useRef(null);
   const audioEls         = useRef([]);
@@ -106,7 +103,7 @@ const VoiceAgent = ({
         new TextEncoder().encode(JSON.stringify(obj)),
         { reliable: true },
       );
-    } catch (_) {}
+    } catch (_) { /* not connected — ignore */ }
   };
 
   const scrollToSection = (id) => {
@@ -189,7 +186,6 @@ const VoiceAgent = ({
       room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
         if (!mounted.current) return;
         const agentTalking = speakers.some(p => !p.isLocal);
-        const userTalking  = speakers.some(p => p.isLocal);
         setIsSpeaking(agentTalking);
         setIsListening(!agentTalking && !isMuted);
         setStatusText(agentTalking ? 'Speaking' : 'Listening…');
@@ -230,7 +226,7 @@ const VoiceAgent = ({
               setTimeout(() => publish({ type: 'ask', text: pendingRef.current }), 600);
             }
           }
-        } catch (_) {}
+        } catch (_) { /* malformed data packet — ignore */ }
       });
 
       room.on(RoomEvent.Disconnected, () => {
@@ -278,14 +274,14 @@ const VoiceAgent = ({
 
   const disconnectRoom = () => {
     cancelSpeech();
-    try { roomRef.current?.disconnect(); } catch (_) {}
+    try { roomRef.current?.disconnect(); } catch (_) { /* already disconnected — ignore */ }
     roomRef.current = null;
     micEnabledRef.current = false;
     hasLiveKitAudio.current = false;
     isMutedRef.current = false;
-    audioEls.current.forEach(el => { try { el.remove(); } catch (_) {} });
+    audioEls.current.forEach(el => { try { el.remove(); } catch (_) { /* already removed */ } });
     audioEls.current = [];
-    audioSourcesRef.current.forEach(src => { try { src.disconnect(); } catch {} });
+    audioSourcesRef.current.forEach(src => { try { src.disconnect(); } catch { /* already disconnected */ } });
     audioSourcesRef.current = [];
     setIsConnected(false);
     setIsSpeaking(false);
@@ -304,6 +300,19 @@ const VoiceAgent = ({
     setIsMuted(next);
     if (next) cancelSpeech(); // muting → stop speaking
     else { setIsListening(true); setStatusText('Listening…'); }
+  };
+
+  const submitTextQuestion = () => {
+    const text = textInput.trim();
+    if (!text) return;
+    setTextInput('');
+    showTranscript(text, 2500);
+    if (!roomRef.current || !isConnected) {
+      setStatusText('Connecting...');
+      return;
+    }
+    publish({ type: 'ask', text });
+    setStatusText('Thinking...');
   };
 
   // Notify agent on section change
@@ -445,6 +454,18 @@ const VoiceAgent = ({
             {/* Controls */}
             <div className="flex items-center gap-2 pl-1">
               <motion.button
+                onClick={() => setTextMode((v) => !v)}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                title={textMode ? 'Hide keyboard' : 'Type instead'}
+                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 shadow-sm cursor-pointer ${
+                  textMode ? 'bg-[#4a7fff] hover:bg-[#386de8]' : 'bg-[#6b7780] hover:bg-[#5c6870]'
+                }`}
+              >
+                <Keyboard className="w-5 h-5 text-white" />
+              </motion.button>
+
+              <motion.button
                 onClick={handleToggleMic}
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
@@ -477,6 +498,37 @@ const VoiceAgent = ({
               </button>
             </div>
           </div>
+
+          <AnimatePresence>
+            {textMode && (
+              <motion.div
+                initial={{ opacity: 0, y: -8, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                transition={{ duration: 0.18 }}
+                className="flex items-center gap-2 bg-[#a6b1b6] p-2 rounded-full shadow-2xl w-[min(92vw,420px)]"
+              >
+                <input
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') submitTextQuestion();
+                    if (e.key === 'Escape') setTextMode(false);
+                  }}
+                  placeholder="Type your question..."
+                  className="flex-1 min-w-0 rounded-full border-0 bg-white/55 px-4 py-3 text-[14px] text-[#1a1a1a] placeholder:text-[#5f686d] outline-none"
+                  autoFocus
+                />
+                <button
+                  onClick={submitTextQuestion}
+                  className="w-11 h-11 rounded-full bg-[#4a7fff] hover:bg-[#386de8] flex items-center justify-center transition-colors shadow-sm flex-shrink-0"
+                  title="Send"
+                >
+                  <Send className="w-5 h-5 text-white" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
           </motion.div>
         </motion.div>
       )}

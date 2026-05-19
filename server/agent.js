@@ -154,7 +154,7 @@ VOICE STYLE (critical for natural TTS):
 LANGUAGE: ALWAYS respond in ${langName}. Follow immediately if visitor switches language.
 MEMORY: Remember everything said. Reference earlier topics naturally.
 BREVITY: Maximum 3 sentences per reply (opening: 4 sentences max).
-ENGAGEMENT: End EVERY reply with a short natural question.
+ENGAGEMENT: Keep the conversation moving naturally. Ask a short follow-up only when it genuinely helps; otherwise give a clear next step without forcing a question.
 NEVER REVEAL: API keys, model names (never say "Llama", "Groq", "OpenAI", "Whisper"), infrastructure, source code.
 
 OPENING: When conversation starts, introduce yourself as Navi, mention you're running live on this site as a real demo, tease one impressive capability, invite a question. Max 4 sentences. Don't list features. Be warm and intriguing.
@@ -193,7 +193,7 @@ const buildClientInstructions = async (user, siteContent, pastConvos = []) => {
 
 PERSONALITY: Confident, warm, professional. Represent ${siteName}. Knowledgeable, helpful, engaging.${personaRule}
 
-VOICE STYLE: Natural speech, contractions, conversational flow. No bullet points. Max 3 sentences per response. End every reply with a relevant follow-up question.
+VOICE STYLE: Natural speech, contractions, conversational flow. No bullet points. Max 3 sentences per response. Ask a relevant follow-up only when it helps the visitor decide or continue; do not force one every turn.
 
 MISSION: Help every visitor find what they need. Answer questions from site knowledge below. Guide to the right page or product. Capture leads naturally.
 
@@ -389,21 +389,20 @@ export default defineAgent({
     });
 
     // ── Data messages from widget ────────────────────────────────────────────
-    const greetings = {
-      it: 'Ciao! Sono Navi. Stai guardando il secondo blocco di questo sito e hai appena attivato un agente vocale AI in tempo reale. Questo e esattamente quello che Navi fa sul tuo sito: parla con i tuoi visitatori nel momento in cui arrivano, risponde alle loro domande e li guida. Cosa vorresti sapere?',
-      en: 'Hey! I\'m Navi. You just scrolled into the heart of this site and triggered a live AI voice agent. This is exactly what Navi does on your site: it speaks to visitors the moment they arrive, answers their questions, and guides them forward. What would you like to know?',
-      fr: 'Salut! Je suis Navi. Vous venez de faire defiler vers le coeur de ce site et d\'activer un agent vocal IA en direct. C\'est exactement ce que Navi fait sur votre site. Par ou voulez-vous commencer?',
-      de: 'Hallo! Ich bin Navi. Sie haben gerade in den Kern dieser Seite gescrollt und einen live KI-Sprachagenten ausgeloest. Genau das macht Navi auf Ihrer Website. Wo moechten Sie anfangen?',
-      es: 'Hola! Soy Navi. Acabas de desplazarte al corazon de este sitio y activaste un agente de voz AI en vivo. Eso es exactamente lo que Navi hace en tu sitio. Por donde quieres empezar?',
-    };
-    const greeting = greetings[lang] ?? greetings.en;
+    const openingInstructions = `Start the conversation naturally in ${LANG_NAMES[lang] ?? 'English'}.
+Do not use a memorized script. React to the current page context and the fact that the visitor just opened Navi.
+Introduce yourself in one or two warm sentences, mention one useful thing you can help with on this site, and ask a short question.
+Keep it conversational, specific, and never list features.`;
     let greetingStarted = false;
     const speakGreeting = async (reason) => {
       if (greetingStarted) return;
       greetingStarted = true;
       console.log(`[Navi] greeting start reason=${reason}`);
       try {
-        const handle = sess.say(greeting, { allowInterruptions: false });
+        const handle = sess.generateReply({
+          instructions: openingInstructions,
+          allowInterruptions: false,
+        });
         await handle.waitForPlayout();
         console.log(`[Navi] greeting done interrupted=${handle.interrupted}`);
       } catch (e) {
@@ -422,7 +421,14 @@ export default defineAgent({
         }
 
         if (msg.type === 'ask' && msg.text) {
-          await sess.say(msg.text);
+          const text = String(msg.text).trim();
+          if (!text) return;
+          console.log(`[Navi] typed ask="${text.slice(0, 120)}"`);
+          const handle = sess.generateReply({
+            userInput: text,
+            allowInterruptions: false,
+          });
+          await handle.waitForPlayout();
         }
 
         if (msg.type === 'site_context' && msg.content) {
