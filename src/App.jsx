@@ -674,23 +674,10 @@ const App = () => {
     });
   }, [scrollY]);
 
-  // Auto-start voice agent when #problem section enters view (cookie consent unlocks AudioContext)
+  // Navi starts only from an explicit user action.
   useEffect(() => {
     if (isVoiceActive) autoStartedRef.current = true;
   }, [isVoiceActive]);
-
-  useEffect(() => {
-    const el = document.getElementById('problem');
-    if (!el) return;
-    const obs = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting && !autoStartedRef.current) {
-        autoStartedRef.current = true;
-        setIsVoiceActive(true);
-      }
-    }, { threshold: 0.15 });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
 
   const heroVinylOpacity = useTransform(scrollY, [0, 350], [1, 0]);
   const heroVinylScale = useTransform(scrollY, [0, 350], [1, 0.85]);

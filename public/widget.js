@@ -59,7 +59,7 @@
   let remoteAudioMonitors = [];             // analyser intervals (cleanup)
   let remoteAudioRouted = false;            // true once a track plays via AudioContext
   const USE_PROXY_TTS_OUTPUT = true;        // play clean ElevenLabs MP3 instead of remote LiveKit audio
-  let PROACTIVE_DELAY = 120000;             // ms; overridden by config
+  let PROACTIVE_DELAY = 0;                  // ms; manual open by default
 
   const AUDIO_CONSTRAINTS = {
     echoCancellation: true,
@@ -948,12 +948,9 @@
       return;
     }
 
-    // Proactive delay from server config (seconds → ms).
-    if (config && config.proactive_delay != null) {
-      PROACTIVE_DELAY = Number(config.proactive_delay) * 1000;
-    } else {
-      PROACTIVE_DELAY = Number(script?.getAttribute('data-proactive-delay') || 120) * 1000;
-    }
+    // Manual open by default. A host page can opt into proactive opening by
+    // explicitly setting data-proactive-delay on the script tag.
+    PROACTIVE_DELAY = Number(script?.getAttribute('data-proactive-delay') || 0) * 1000;
 
     // Auto-palette — override pill tint from the host site's accent color.
     const pillOverride = config?.auto_palette ? samplePalette() : null;
