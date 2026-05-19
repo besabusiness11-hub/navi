@@ -365,6 +365,10 @@
     });
   }
 
+  function fallbackAudioPlaying() {
+    return !!currentFallbackAudio && !currentFallbackAudio.paused && !currentFallbackAudio.ended;
+  }
+
   function showTranscript(text) {
     const el = $('transcript');
     if (!el) return;
@@ -619,6 +623,10 @@
 
       r.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
         if (!isOpen) return;
+        if (USE_PROXY_TTS_OUTPUT) {
+          setStatus(fallbackAudioPlaying() ? 'speaking' : 'listening');
+          return;
+        }
         const remoteSpeak = speakers.some(p => !p.isLocal);
         const localSpeak  = speakers.some(p => p.isLocal);
         if (remoteSpeak)     setStatus('speaking');
@@ -813,9 +821,13 @@
         pendingAgentText = null;
         setStatus('speaking');
       };
+      currentFallbackAudio.onplaying = () => setStatus('speaking');
       currentFallbackAudio.onended = () => {
         if (room && isOpen) setStatus('listening');
         stopFallbackAudio();
+      };
+      currentFallbackAudio.onerror = () => {
+        if (room && isOpen) setStatus('listening');
       };
       await currentFallbackAudio.play();
     } catch (err) {
@@ -980,14 +992,14 @@
       const inp = $('text-input');
       const v = inp.value;
       inp.value = '';
-      sendChatText(v);
+      sendText(v);
     };
     $('text-send').addEventListener('click', submitText);
     $('text-input').addEventListener('keydown', e => { if (e.key === 'Enter') submitText(); });
 
     setStatus('idle');
     watchSections();
-    setTimeout(loadLK, 800);
+    loadLK().catch(() => {});
     setTimeout(() => crawlSite(), 1200);
 
     if (PROACTIVE_DELAY > 0) {

@@ -36,6 +36,7 @@ const VoiceAgent = ({
   const micEnabledRef    = useRef(false);
   const hasLiveKitAudio  = useRef(false);
   const isMutedRef       = useRef(false);
+  const clientAudioReady = useRef(false);
   const waveformDurs     = useRef([...Array(5)].map(() => 0.4 + Math.random() * 0.4));
   const visitorId        = useRef(
     localStorage.getItem('_navi_vid') || Math.random().toString(36).slice(2)
@@ -106,6 +107,14 @@ const VoiceAgent = ({
     } catch (_) { /* not connected — ignore */ }
   };
 
+  const signalClientAudioReady = async () => {
+    if (clientAudioReady.current || !roomRef.current) return;
+    await roomRef.current.startAudio?.().catch(() => {});
+    audioEls.current.forEach(el => el.play().catch(() => {}));
+    publish({ type: 'client_audio_ready' });
+    clientAudioReady.current = true;
+  };
+
   const scrollToSection = (id) => {
     setTimeout(() => {
       document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
@@ -173,7 +182,21 @@ const VoiceAgent = ({
         el.setAttribute('playsinline', '');
         document.body.appendChild(el);
         audioEls.current.push(el);
-        el.play().catch(e => console.warn('[VoiceAgent] el.play() blocked:', e.name));
+        el.addEventListener('playing', () => {
+          if (!mounted.current) return;
+          setIsSpeaking(true);
+          setIsListening(false);
+          setStatusText('Speaking');
+        });
+        el.addEventListener('ended', () => {
+          if (!mounted.current || isMutedRef.current) return;
+          setIsSpeaking(false);
+          setIsListening(true);
+          setStatusText('Listening…');
+        });
+        el.play()
+          .then(() => signalClientAudioReady())
+          .catch(e => console.warn('[VoiceAgent] el.play() blocked:', e.name));
       });
 
       room.on(RoomEvent.TrackUnsubscribed, (track) => {
@@ -219,6 +242,7 @@ const VoiceAgent = ({
 
           if (msg.type === 'ready') {
             setStatusText('Starting…');
+            signalClientAudioReady();
             // Safety: if agent never speaks, enable mic after 6s
             setTimeout(enableMic, 6000);
             if (pendingRef.current) {
@@ -278,6 +302,7 @@ const VoiceAgent = ({
     roomRef.current = null;
     micEnabledRef.current = false;
     hasLiveKitAudio.current = false;
+    clientAudioReady.current = false;
     isMutedRef.current = false;
     audioEls.current.forEach(el => { try { el.remove(); } catch (_) { /* already removed */ } });
     audioEls.current = [];
