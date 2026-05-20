@@ -120,8 +120,17 @@ Task 1 has been completed locally:
   - `GET /api/admin/overview`
   - `GET /api/admin/errors`
   - `GET /api/admin/health`
+  - `PATCH /api/admin/customers/:id`
 - Added React admin dashboard route:
   - `https://getnavi.dev/admin`
+- Redesigned the admin dashboard as an operations database:
+  - dark/light theme switch
+  - searchable and sortable customer table
+  - plan/status filters
+  - pagination for large customer lists
+  - CSV export
+  - customer detail panel
+  - pause/resume agent action for each customer
 
 Detailed Task 1 report:
 
@@ -280,6 +289,14 @@ https://getnavi.dev/admin
 
 The token is stored only in the browser localStorage. If the token is wrong, the admin page will reject access.
 
+Current admin capabilities:
+
+- Monitor customers, plans, widgets installed, sessions, voice usage, TTS characters, LLM tokens, KB pages, costs and margins.
+- Inspect provider spend, provider errors and health samples.
+- Search, filter, sort and paginate the customer database.
+- Export the filtered customer view as CSV.
+- Pause or resume a customer's agent from the detail panel without changing billing, keys, or plan.
+
 ---
 
 ## What Still Needs To Be Done
@@ -317,7 +334,7 @@ Recommended before many customers:
 - Schedule `scripts/uptime-check.js` on the VPS.
 - Schedule `scripts/pg-backup.sh` and verify backup restore.
 - Tune `PLAN_LIMITS` after two weeks of real usage data.
-- Add admin controls for customer disable/reactivate.
+- Add deeper admin controls for plan changes, quota overrides and manual bonus sessions.
 - Add provider budget alerts with real cost calibration.
 - Add a formal staging environment separate from production.
 

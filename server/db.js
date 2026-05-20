@@ -278,6 +278,14 @@ export const updateUser = async (id, patch) => {
   await run(`UPDATE users SET ${sets} WHERE id = $${keys.length + 1}`, [...keys.map(k => patch[k]), id]);
 };
 
+export const setUserAgentEnabled = async (id, enabled) =>
+  one(`
+    UPDATE users
+    SET agent_enabled = $1
+    WHERE id = $2
+    RETURNING id, email, name, plan, site_url, agent_enabled
+  `, [enabled ? 1 : 0, id]);
+
 // Widget chat bumps minute_used + last_seen.
 export const bumpMinuteUsed = (id) =>
   run(`UPDATE users SET minute_used = minute_used + 1, last_seen = extract(epoch from now())::bigint WHERE id = $1`, [id]);

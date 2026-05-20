@@ -8,7 +8,7 @@ import {
   getAdminOverview, logUsageEvent, logProviderError,
   getUsageLimits, bumpUsage, planLimits,
   getRecentProviderErrors, getProviderErrorSummary,
-  getRecentHealth,
+  getRecentHealth, setUserAgentEnabled,
 } from '../db.js';
 import { generateApiKey, generateToken } from '../keys.js';
 import { sendWelcomeEmail, sendLeadAlert, sendUnknownAlert } from '../email.js';
@@ -232,6 +232,20 @@ router.get('/admin/errors', requireAdmin, async (req, res) => {
 router.get('/admin/health', requireAdmin, async (req, res) => {
   const hours = Number(req.query.hours ?? 24);
   res.json({ hours, samples: await getRecentHealth({ hours }) });
+});
+
+// Admin customer controls. Keep this intentionally narrow: today the admin can
+// pause/resume a customer's agent without mutating plan, billing, or keys.
+router.patch('/admin/customers/:id', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'invalid customer id' });
+  if (typeof req.body.agent_enabled !== 'boolean') {
+    return res.status(400).json({ error: 'agent_enabled must be boolean' });
+  }
+
+  const customer = await setUserAgentEnabled(id, req.body.agent_enabled);
+  if (!customer) return res.status(404).json({ error: 'customer not found' });
+  res.json({ ok: true, customer: { ...customer, agent_enabled: !!customer.agent_enabled } });
 });
 
 // Transcripts list + search.  ?q= search term, ?page= 0-based.

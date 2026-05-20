@@ -4,21 +4,37 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  BarChart3,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Database,
   Download,
+  Eye,
+  Filter,
   Gauge,
+  LayoutDashboard,
   LineChart,
+  Moon,
+  PauseCircle,
+  PlayCircle,
   RefreshCcw,
   Search,
+  Server,
   ShieldAlert,
-  SlidersHorizontal,
+  Sun,
   UserRound,
+  Users,
+  Wallet,
   XCircle,
+  Zap,
 } from 'lucide-react';
 import { clearAdminToken } from './AdminLogin.jsx';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8000';
+
+const THEME_KEY = 'navi_admin_theme_v2';
+const FONT_STACK = '"Aptos", "Manrope", "Satoshi", "Segoe UI", sans-serif';
 
 const eur = (cents) => `EUR ${((Number(cents) || 0) / 100).toFixed(2)}`;
 const fmtN = (n) => new Intl.NumberFormat('en-US').format(Number(n) || 0);
@@ -39,24 +55,60 @@ const fmtRelative = (epoch) => {
 };
 
 const RANGES = [
-  { id: 7, label: '7d' },
-  { id: 30, label: '30d' },
-  { id: 90, label: '90d' },
+  { id: 7, label: '7 days' },
+  { id: 30, label: '30 days' },
+  { id: 90, label: '90 days' },
 ];
 
 const PLANS = ['all', 'free', 'starter', 'business', 'agency'];
 const STATUSES = ['all', 'healthy', 'attention', 'quota', 'offline'];
 const PAGE_SIZES = [25, 50, 100];
 
+const THEME = {
+  dark: {
+    '--page': '#07080c',
+    '--page-soft': '#0e1018',
+    '--surface': 'rgba(255,255,255,0.045)',
+    '--surface-strong': 'rgba(255,255,255,0.075)',
+    '--surface-hover': 'rgba(255,255,255,0.095)',
+    '--text': '#f6f7fb',
+    '--muted': 'rgba(246,247,251,0.58)',
+    '--faint': 'rgba(246,247,251,0.34)',
+    '--border': 'rgba(255,255,255,0.12)',
+    '--border-strong': 'rgba(255,255,255,0.2)',
+    '--grid': 'rgba(255,255,255,0.035)',
+    '--accent': '#74a6ff',
+    '--accent-2': '#e94b95',
+    '--good': '#58d68d',
+    '--warn': '#f7be4b',
+    '--bad': '#ff6b6b',
+    '--blue': '#7ab6ff',
+    '--shadow': '0 22px 80px rgba(0,0,0,0.35)',
+  },
+  light: {
+    '--page': '#f4f5f8',
+    '--page-soft': '#ffffff',
+    '--surface': 'rgba(255,255,255,0.86)',
+    '--surface-strong': 'rgba(255,255,255,0.96)',
+    '--surface-hover': 'rgba(21,27,41,0.045)',
+    '--text': '#151b29',
+    '--muted': 'rgba(21,27,41,0.62)',
+    '--faint': 'rgba(21,27,41,0.42)',
+    '--border': 'rgba(21,27,41,0.12)',
+    '--border-strong': 'rgba(21,27,41,0.2)',
+    '--grid': 'rgba(21,27,41,0.045)',
+    '--accent': '#245fff',
+    '--accent-2': '#d93b85',
+    '--good': '#138a50',
+    '--warn': '#b87505',
+    '--bad': '#d83a3a',
+    '--blue': '#245fff',
+    '--shadow': '0 22px 80px rgba(22,30,46,0.12)',
+  },
+};
+
 function cx(...parts) {
   return parts.filter(Boolean).join(' ');
-}
-
-function usageTone(value) {
-  if (value >= 1) return 'text-[#ff6b6b] bg-[#ff6b6b]/10 border-[#ff6b6b]/25';
-  if (value >= 0.8) return 'text-[#ffbf4d] bg-[#ffbf4d]/10 border-[#ffbf4d]/25';
-  if (value >= 0.5) return 'text-[#67c7ff] bg-[#67c7ff]/10 border-[#67c7ff]/25';
-  return 'text-[#9ea7ad] bg-white/[0.03] border-white/10';
 }
 
 function statusOf(c) {
@@ -95,38 +147,65 @@ function sortValue(row, key) {
   return row[key] ?? '';
 }
 
+function toneStyle(tone = 'default') {
+  const colors = {
+    default: ['var(--faint)', 'transparent', 'var(--border)'],
+    good: ['var(--good)', 'color-mix(in srgb, var(--good) 13%, transparent)', 'color-mix(in srgb, var(--good) 35%, transparent)'],
+    warn: ['var(--warn)', 'color-mix(in srgb, var(--warn) 14%, transparent)', 'color-mix(in srgb, var(--warn) 38%, transparent)'],
+    bad: ['var(--bad)', 'color-mix(in srgb, var(--bad) 14%, transparent)', 'color-mix(in srgb, var(--bad) 38%, transparent)'],
+    blue: ['var(--blue)', 'color-mix(in srgb, var(--blue) 13%, transparent)', 'color-mix(in srgb, var(--blue) 35%, transparent)'],
+  }[tone];
+  return { color: colors[0], background: colors[1], borderColor: colors[2] };
+}
+
+function usageTone(value) {
+  if (value >= 1) return 'bad';
+  if (value >= 0.8) return 'warn';
+  if (value >= 0.5) return 'blue';
+  return 'default';
+}
+
 function Pill({ children, tone = 'default' }) {
-  const tones = {
-    default: 'border-white/10 bg-white/[0.04] text-white/55',
-    good: 'border-[#3ddc84]/25 bg-[#3ddc84]/10 text-[#67e6a0]',
-    warn: 'border-[#ffbf4d]/25 bg-[#ffbf4d]/10 text-[#ffd58a]',
-    bad: 'border-[#ff6b6b]/25 bg-[#ff6b6b]/10 text-[#ff9c9c]',
-    blue: 'border-[#65a7ff]/25 bg-[#65a7ff]/10 text-[#9ac4ff]',
-  };
   return (
-    <span className={cx('inline-flex items-center rounded-full border px-2 py-0.5 text-[11px]', tones[tone])}>
+    <span className="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold" style={toneStyle(tone)}>
       {children}
     </span>
   );
 }
 
-function SummaryTile({ icon: Icon, label, value, sub, tone = 'neutral' }) {
-  const color = {
-    neutral: 'text-white',
-    good: 'text-[#67e6a0]',
-    warn: 'text-[#ffd58a]',
-    bad: 'text-[#ff9c9c]',
-    blue: 'text-[#9ac4ff]',
-  }[tone];
-
+function ControlButton({ children, icon: Icon, active, danger, onClick, disabled }) {
   return (
-    <div className="min-h-[92px] border border-white/10 bg-[#0d0e12] px-4 py-3">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cx(
+        'inline-flex h-10 items-center gap-2 rounded-full border px-3 text-sm font-semibold transition',
+        'disabled:cursor-not-allowed disabled:opacity-50',
+      )}
+      style={{
+        borderColor: active ? 'var(--accent)' : danger ? 'color-mix(in srgb, var(--bad) 34%, transparent)' : 'var(--border)',
+        background: active ? 'color-mix(in srgb, var(--accent) 14%, transparent)' : danger ? 'color-mix(in srgb, var(--bad) 10%, transparent)' : 'var(--surface)',
+        color: active ? 'var(--accent)' : danger ? 'var(--bad)' : 'var(--muted)',
+      }}
+    >
+      {Icon && <Icon className="h-4 w-4" />}
+      {children}
+    </button>
+  );
+}
+
+function SummaryTile({ icon: Icon, label, value, sub, tone = 'default' }) {
+  return (
+    <div className="rounded-[22px] border p-4" style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow)' }}>
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[10px] uppercase tracking-[0.18em] text-white/38">{label}</span>
-        <Icon className="h-4 w-4 text-white/28" />
+        <span className="text-[12px] font-semibold" style={{ color: 'var(--muted)' }}>{label}</span>
+        <span className="grid h-9 w-9 place-items-center rounded-2xl border" style={{ ...toneStyle(tone), borderColor: toneStyle(tone).borderColor }}>
+          <Icon className="h-4 w-4" />
+        </span>
       </div>
-      <div className={cx('mt-3 text-2xl font-semibold leading-none', color)}>{value}</div>
-      {sub && <div className="mt-2 truncate text-[11px] text-white/38">{sub}</div>}
+      <div className="mt-5 text-3xl font-semibold tracking-[-0.03em]" style={{ color: 'var(--text)' }}>{value}</div>
+      {sub && <div className="mt-2 truncate text-[12px]" style={{ color: 'var(--faint)' }}>{sub}</div>}
     </div>
   );
 }
@@ -134,19 +213,14 @@ function SummaryTile({ icon: Icon, label, value, sub, tone = 'neutral' }) {
 function SortButton({ id, label, sort, setSort, align = 'left' }) {
   const active = sort.key === id;
   const Icon = sort.dir === 'asc' ? ArrowUp : ArrowDown;
-  const next = () => {
-    setSort((s) => s.key === id ? { key: id, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: id, dir: 'desc' });
-  };
-
   return (
     <button
       type="button"
-      onClick={next}
-      className={cx(
-        'inline-flex w-full items-center gap-1 text-[10px] uppercase tracking-[0.14em]',
-        align === 'right' ? 'justify-end' : 'justify-start',
-        active ? 'text-white' : 'text-white/34 hover:text-white/65',
-      )}
+      onClick={() => {
+        setSort((s) => s.key === id ? { key: id, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: id, dir: 'desc' });
+      }}
+      className={cx('inline-flex w-full items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.08em]', align === 'right' ? 'justify-end' : 'justify-start')}
+      style={{ color: active ? 'var(--text)' : 'var(--faint)' }}
     >
       {label}
       {active && <Icon className="h-3 w-3" />}
@@ -156,21 +230,23 @@ function SortButton({ id, label, sort, setSort, align = 'left' }) {
 
 function UsageBar({ value }) {
   const pct = Math.max(0, Math.min(1.2, Number(value) || 0));
-  const width = `${Math.min(100, pct * 100)}%`;
-  const color = pct >= 1 ? 'bg-[#ff6b6b]' : pct >= 0.8 ? 'bg-[#ffbf4d]' : 'bg-[#60d394]';
+  const tone = usageTone(pct);
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/8">
-      <div className={cx('h-full rounded-full', color)} style={{ width }} />
+    <div className="h-2 w-full overflow-hidden rounded-full" style={{ background: 'color-mix(in srgb, var(--text) 9%, transparent)' }}>
+      <div
+        className="h-full rounded-full transition-all"
+        style={{ width: `${Math.min(100, pct * 100)}%`, background: toneStyle(tone).color }}
+      />
     </div>
   );
 }
 
-function CustomerDetail({ customer, onClose }) {
+function CustomerDetail({ customer, onClose, onToggleAgent, actionLoading }) {
   if (!customer) {
     return (
-      <aside className="hidden border-l border-white/10 bg-[#08090d] xl:block xl:w-[360px]">
-        <div className="sticky top-[73px] p-5 text-sm text-white/35">
-          Select a customer to inspect usage, quota and widget health.
+      <aside className="hidden border-l xl:block xl:w-[390px]" style={{ borderColor: 'var(--border)', background: 'var(--page-soft)' }}>
+        <div className="sticky top-[76px] p-6 text-sm" style={{ color: 'var(--faint)' }}>
+          Select a customer to inspect usage, quota, widget health and controls.
         </div>
       </aside>
     );
@@ -183,22 +259,24 @@ function CustomerDetail({ customer, onClose }) {
     ['llm_tokens', customer.llm_tokens_used, customer.plan_limits?.llm_tokens],
     ['kb_pages', customer.kb_pages_used, customer.plan_limits?.kb_pages],
   ];
-
   const status = statusOf(customer);
 
   return (
-    <aside className="border-l border-white/10 bg-[#08090d] xl:w-[360px]">
-      <div className="sticky top-[73px] max-h-[calc(100vh-73px)] overflow-y-auto p-5">
+    <aside className="border-l xl:w-[390px]" style={{ borderColor: 'var(--border)', background: 'var(--page-soft)' }}>
+      <div className="sticky top-[76px] max-h-[calc(100vh-76px)] overflow-y-auto p-6">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div>
-            <div className="text-[10px] uppercase tracking-[0.2em] text-white/32">Customer record</div>
-            <h2 className="mt-2 break-words text-lg font-semibold text-white">{customer.email || `User #${customer.id}`}</h2>
-            <div className="mt-1 text-xs text-white/42">{customer.name || 'No name'} · id #{customer.id}</div>
+            <div className="text-[12px] font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--faint)' }}>Customer record</div>
+            <h2 className="mt-2 break-words text-xl font-semibold tracking-[-0.02em]" style={{ color: 'var(--text)' }}>
+              {customer.email || `User #${customer.id}`}
+            </h2>
+            <div className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>{customer.name || 'No name'} - id #{customer.id}</div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-white/10 p-1.5 text-white/42 hover:text-white xl:hidden"
+            className="rounded-full border p-1.5 xl:hidden"
+            style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
             aria-label="Close customer detail"
           >
             <XCircle className="h-4 w-4" />
@@ -208,40 +286,54 @@ function CustomerDetail({ customer, onClose }) {
         <div className="mb-5 flex flex-wrap gap-2">
           <Pill tone={customer.plan === 'free' ? 'default' : 'blue'}>{customer.plan}</Pill>
           <Pill tone={status === 'healthy' ? 'good' : status === 'quota' ? 'bad' : 'warn'}>{statusLabel(status)}</Pill>
-          <Pill tone={customer.agent_enabled ? 'good' : 'bad'}>{customer.agent_enabled ? 'Agent on' : 'Agent off'}</Pill>
+          <Pill tone={customer.agent_enabled ? 'good' : 'bad'}>{customer.agent_enabled ? 'Agent live' : 'Agent paused'}</Pill>
         </div>
 
-        <div className="mb-5 grid grid-cols-2 gap-2">
-          <div className="border border-white/10 bg-white/[0.03] p-3">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-white/32">Revenue</div>
-            <div className="mt-2 text-sm text-white">{eur(customer.revenue_cents)}</div>
-          </div>
-          <div className="border border-white/10 bg-white/[0.03] p-3">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-white/32">Margin</div>
-            <div className={cx('mt-2 text-sm', customer.margin_cents < 0 ? 'text-[#ff9c9c]' : 'text-[#67e6a0]')}>
-              {eur(customer.margin_cents)}
+        <div className="mb-6 rounded-[22px] border p-4" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-[12px] font-semibold" style={{ color: 'var(--muted)' }}>Agent control</div>
+              <div className="text-[12px]" style={{ color: 'var(--faint)' }}>Immediate customer runtime switch</div>
             </div>
+            <ControlButton
+              icon={customer.agent_enabled ? PauseCircle : PlayCircle}
+              danger={customer.agent_enabled}
+              active={!customer.agent_enabled}
+              disabled={actionLoading === customer.id}
+              onClick={() => onToggleAgent(customer, !customer.agent_enabled)}
+            >
+              {actionLoading === customer.id ? 'Saving' : customer.agent_enabled ? 'Pause' : 'Resume'}
+            </ControlButton>
           </div>
-          <div className="border border-white/10 bg-white/[0.03] p-3">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-white/32">Sessions</div>
-            <div className="mt-2 text-sm text-white">{fmtN(customer.sessions)} in range</div>
+          <div className="text-[12px] leading-relaxed" style={{ color: 'var(--muted)' }}>
+            Pausing blocks widget chat, voice tokens and sessions for this customer without changing billing or keys.
           </div>
-          <div className="border border-white/10 bg-white/[0.03] p-3">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-white/32">Leads</div>
-            <div className="mt-2 text-sm text-white">{fmtN(customer.leads)}</div>
-          </div>
+        </div>
+
+        <div className="mb-6 grid grid-cols-2 gap-3">
+          {[
+            ['Revenue', eur(customer.revenue_cents), 'blue'],
+            ['Margin', eur(customer.margin_cents), customer.margin_cents < 0 ? 'bad' : 'good'],
+            ['Sessions', `${fmtN(customer.sessions)} range`, 'default'],
+            ['Leads', fmtN(customer.leads), 'default'],
+          ].map(([label, value, tone]) => (
+            <div key={label} className="rounded-2xl border p-3" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: 'var(--faint)' }}>{label}</div>
+              <div className="mt-2 text-sm font-semibold" style={{ color: toneStyle(tone).color }}>{value}</div>
+            </div>
+          ))}
         </div>
 
         <section className="mb-6">
-          <h3 className="mb-3 text-[10px] uppercase tracking-[0.2em] text-white/35">Quota burn</h3>
-          <div className="space-y-3">
+          <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--faint)' }}>Quota burn</h3>
+          <div className="space-y-4">
             {metrics.map(([key, used, limit]) => {
               const pct = limit ? used / limit : 0;
               return (
                 <div key={key}>
-                  <div className="mb-1 flex items-center justify-between text-[11px]">
-                    <span className="text-white/58">{metricLabel(key)}</span>
-                    <span className={cx('rounded-full border px-1.5 py-0.5', usageTone(pct))}>
+                  <div className="mb-1.5 flex items-center justify-between text-[12px]">
+                    <span style={{ color: 'var(--muted)' }}>{metricLabel(key)}</span>
+                    <span className="rounded-full border px-2 py-0.5 font-semibold" style={toneStyle(usageTone(pct))}>
                       {fmtN(used)} / {fmtN(limit)}
                     </span>
                   </div>
@@ -253,46 +345,36 @@ function CustomerDetail({ customer, onClose }) {
         </section>
 
         <section className="mb-6">
-          <h3 className="mb-3 text-[10px] uppercase tracking-[0.2em] text-white/35">Widget</h3>
-          <div className="space-y-2 text-[12px]">
-            <div className="flex justify-between gap-3">
-              <span className="text-white/38">Site</span>
-              <span className="max-w-[220px] truncate text-right text-white/70">{customer.site_url || '-'}</span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span className="text-white/38">Seen</span>
-              <span className="text-white/70">{customer.widget_seen_at ? fmtRelative(customer.widget_seen_at) : 'Never'}</span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span className="text-white/38">Activity</span>
-              <span className="text-white/70">{fmtRelative(customer.activity_at)}</span>
-            </div>
-            <div className="flex justify-between gap-3">
-              <span className="text-white/38">KB</span>
-              <span className="text-white/70">{customer.kb_status || '-'} · {fmtN(customer.kb_chunks)} chunks</span>
-            </div>
+          <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--faint)' }}>Widget</h3>
+          <div className="space-y-3 text-[13px]">
+            {[
+              ['Site', customer.site_url || '-'],
+              ['Seen', customer.widget_seen_at ? fmtRelative(customer.widget_seen_at) : 'Never'],
+              ['Activity', fmtRelative(customer.activity_at)],
+              ['Knowledge base', `${customer.kb_status || '-'} - ${fmtN(customer.kb_chunks)} chunks`],
+            ].map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-3">
+                <span style={{ color: 'var(--faint)' }}>{label}</span>
+                <span className="max-w-[230px] truncate text-right" style={{ color: 'var(--muted)' }}>{value}</span>
+              </div>
+            ))}
           </div>
         </section>
 
         <section>
-          <h3 className="mb-3 text-[10px] uppercase tracking-[0.2em] text-white/35">Range activity</h3>
-          <div className="grid grid-cols-2 gap-2 text-[12px]">
-            <div className="border border-white/10 bg-white/[0.03] p-3">
-              <span className="text-white/38">Voice</span>
-              <div className="mt-1 text-white">{fmtSeconds(customer.voice_seconds)}</div>
-            </div>
-            <div className="border border-white/10 bg-white/[0.03] p-3">
-              <span className="text-white/38">Conversations</span>
-              <div className="mt-1 text-white">{fmtN(customer.conversations)}</div>
-            </div>
-            <div className="border border-white/10 bg-white/[0.03] p-3">
-              <span className="text-white/38">TTS</span>
-              <div className="mt-1 text-white">{fmtN(customer.tts_chars)}</div>
-            </div>
-            <div className="border border-white/10 bg-white/[0.03] p-3">
-              <span className="text-white/38">LLM</span>
-              <div className="mt-1 text-white">{fmtN(customer.llm_tokens)}</div>
-            </div>
+          <h3 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.12em]" style={{ color: 'var(--faint)' }}>Range activity</h3>
+          <div className="grid grid-cols-2 gap-3 text-[13px]">
+            {[
+              ['Voice', fmtSeconds(customer.voice_seconds)],
+              ['Conversations', fmtN(customer.conversations)],
+              ['TTS', fmtN(customer.tts_chars)],
+              ['LLM', fmtN(customer.llm_tokens)],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border p-3" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+                <span style={{ color: 'var(--faint)' }}>{label}</span>
+                <div className="mt-1 font-semibold" style={{ color: 'var(--text)' }}>{value}</div>
+              </div>
+            ))}
           </div>
         </section>
       </div>
@@ -301,6 +383,7 @@ function CustomerDetail({ customer, onClose }) {
 }
 
 export default function AdminDashboard({ token, onSignOut }) {
+  const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || 'dark');
   const [days, setDays] = useState(30);
   const [overview, setOverview] = useState(null);
   const [errors, setErrors] = useState(null);
@@ -314,6 +397,7 @@ export default function AdminDashboard({ token, onSignOut }) {
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState(null);
+  const [actionLoading, setActionLoading] = useState(null);
 
   const headers = useMemo(() => ({ 'x-admin-token': token }), [token]);
 
@@ -343,6 +427,7 @@ export default function AdminDashboard({ token, onSignOut }) {
 
   useEffect(() => { refresh(); }, [days]);
   useEffect(() => { setPage(1); }, [query, plan, status, pageSize, days]);
+  useEffect(() => { localStorage.setItem(THEME_KEY, theme); }, [theme]);
 
   const customers = overview?.customers ?? [];
   const totals = overview?.totals ?? {};
@@ -390,11 +475,29 @@ export default function AdminDashboard({ token, onSignOut }) {
   const safePage = Math.min(page, totalPages);
   const pageRows = filteredCustomers.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selected = customers.find((c) => c.id === selectedId) ?? pageRows[0] ?? null;
-
   const providerCost = byProvider.reduce((sum, p) => sum + (Number(p.cost_cents) || 0), 0);
   const healthOk = inlineHealth.length
     ? inlineHealth.every((h) => (Number(h.ok_count) || 0) / Math.max(1, Number(h.total) || 1) >= 0.95)
     : null;
+
+  const toggleAgent = async (customer, enabled) => {
+    setActionLoading(customer.id);
+    setErr('');
+    try {
+      const res = await fetch(`${BACKEND}/api/admin/customers/${customer.id}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_enabled: enabled }),
+      });
+      if (!res.ok) throw new Error(`Backend ${res.status}`);
+      await refresh();
+      setSelectedId(customer.id);
+    } catch (e) {
+      setErr(e.message || 'Failed to update customer');
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const exportCsv = () => {
     const header = ['id', 'email', 'plan', 'status', 'site_url', 'sessions', 'voice_seconds_used', 'tts_chars_used', 'llm_tokens_used', 'kb_pages_used', 'revenue_cents', 'estimated_cost_cents', 'margin_cents'];
@@ -411,154 +514,198 @@ export default function AdminDashboard({ token, onSignOut }) {
     URL.revokeObjectURL(url);
   };
 
+  const shellStyle = {
+    ...THEME[theme],
+    fontFamily: FONT_STACK,
+    backgroundImage: 'linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px)',
+    backgroundSize: '28px 28px',
+  };
+
   return (
-    <div className="min-h-screen bg-[#07080b] text-white font-mono">
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#07080b]/92 backdrop-blur">
-        <div className="flex min-h-[72px] items-center justify-between gap-5 px-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center border border-white/12 bg-white/[0.04]">
-              <Database className="h-4 w-4 text-[#9ac4ff]" />
+    <div className="min-h-screen text-[var(--text)]" style={shellStyle}>
+      <div className="fixed inset-0 -z-10" style={{ background: 'linear-gradient(135deg, var(--page) 0%, var(--page-soft) 58%, color-mix(in srgb, var(--accent) 8%, var(--page)) 100%)' }} />
+
+      <header className="sticky top-0 z-30 border-b backdrop-blur-xl" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--page) 88%, transparent)' }}>
+        <div className="flex min-h-[76px] items-center justify-between gap-5 px-5">
+          <div className="flex items-center gap-4">
+            <div className="grid h-11 w-11 place-items-center rounded-2xl border" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+              <Database className="h-5 w-5" style={{ color: 'var(--accent)' }} />
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-[0.22em] text-white/38">Navi admin</div>
-              <div className="text-sm font-semibold text-white">Operations database</div>
+              <div className="text-[12px] font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--faint)' }}>Navi command center</div>
+              <div className="text-lg font-semibold tracking-[-0.03em]">Admin database</div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="hidden items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] p-1 md:flex">
+            <div className="hidden items-center gap-1 rounded-full border p-1 md:flex" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
               {RANGES.map((r) => (
                 <button
                   key={r.id}
                   type="button"
                   onClick={() => setDays(r.id)}
-                  className={cx(
-                    'h-7 rounded-full px-3 text-[12px]',
-                    days === r.id ? 'bg-white text-black' : 'text-white/48 hover:text-white',
-                  )}
+                  className="h-8 rounded-full px-3 text-[12px] font-semibold transition"
+                  style={{
+                    background: days === r.id ? 'var(--text)' : 'transparent',
+                    color: days === r.id ? 'var(--page)' : 'var(--muted)',
+                  }}
                 >
                   {r.label}
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={refresh}
-              className="inline-flex h-9 items-center gap-2 border border-white/12 px-3 text-[12px] text-white/65 hover:border-white/28 hover:text-white"
-            >
-              <RefreshCcw className={cx('h-3.5 w-3.5', loading && 'animate-spin')} />
+            <ControlButton icon={theme === 'dark' ? Sun : Moon} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+              {theme === 'dark' ? 'Light' : 'Dark'}
+            </ControlButton>
+            <ControlButton icon={RefreshCcw} onClick={refresh} disabled={loading}>
               Refresh
-            </button>
-            <button
-              type="button"
-              onClick={() => { clearAdminToken(); onSignOut(); }}
-              className="h-9 border border-white/10 px-3 text-[12px] text-white/42 hover:text-white"
-            >
+            </ControlButton>
+            <ControlButton onClick={() => { clearAdminToken(); onSignOut(); }}>
               Sign out
-            </button>
+            </ControlButton>
           </div>
         </div>
       </header>
 
       {err && (
-        <div className="mx-5 mt-4 border border-[#ff6b6b]/35 bg-[#ff6b6b]/10 px-4 py-3 text-sm text-[#ffb1b1]">
+        <div className="mx-5 mt-4 rounded-2xl border px-4 py-3 text-sm" style={toneStyle('bad')}>
           {err}
         </div>
       )}
 
       {loading && !overview ? (
-        <div className="flex h-[60vh] items-center justify-center text-sm text-white/38">Loading admin database...</div>
+        <div className="flex h-[60vh] items-center justify-center text-sm" style={{ color: 'var(--faint)' }}>Loading admin database...</div>
       ) : (
-        <div className="grid xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid xl:grid-cols-[minmax(0,1fr)_390px]">
           <main className="min-w-0 p-5">
-            <section className="mb-5 grid grid-cols-2 gap-2 lg:grid-cols-4 xl:grid-cols-8">
-              <SummaryTile icon={UserRound} label="Customers" value={fmtN(totals.users)} sub={`${customerStats.installed} installed`} />
-              <SummaryTile icon={LineChart} label="MRR" value={eur(totals.monthly_recurring_cents)} sub="monthly plan value" tone="blue" />
-              <SummaryTile icon={Gauge} label="Usage cost" value={eur(totals.usage_cost_cents)} sub={`${eur(providerCost)} providers`} />
-              <SummaryTile icon={Activity} label="Voice" value={fmtSeconds(totals.voice_seconds)} sub={`${fmtN(totals.conversations)} conv.`} />
-              <SummaryTile icon={CheckCircle2} label="Healthy" value={fmtN(customerStats.counts.healthy)} sub="no immediate action" tone="good" />
-              <SummaryTile icon={AlertTriangle} label="Attention" value={fmtN(customerStats.counts.attention)} sub="review customers" tone="warn" />
-              <SummaryTile icon={ShieldAlert} label="Quota" value={fmtN(customerStats.counts.quota)} sub="blocked / exhausted" tone="bad" />
-              <SummaryTile icon={LineChart} label="Health" value={healthOk == null ? '-' : healthOk ? 'OK' : 'Check'} sub={`${inlineErrors.length} provider alerts`} tone={healthOk === false ? 'warn' : 'good'} />
+            <div className="mb-5 grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
+              <nav className="rounded-[26px] border p-3" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+                {[
+                  [LayoutDashboard, 'Overview', true],
+                  [Users, 'Customers', true],
+                  [Server, 'Providers', false],
+                  [BarChart3, 'Revenue', false],
+                  [ShieldAlert, 'Risk', false],
+                ].map(([Icon, label, active]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className="mb-1 flex h-11 w-full items-center gap-3 rounded-2xl px-3 text-sm font-semibold"
+                    style={{
+                      color: active ? 'var(--text)' : 'var(--muted)',
+                      background: active ? 'var(--surface-strong)' : 'transparent',
+                    }}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {label}
+                  </button>
+                ))}
+                <div className="mt-4 rounded-3xl border p-4" style={{ borderColor: 'var(--border)', background: 'color-mix(in srgb, var(--accent) 9%, transparent)' }}>
+                  <div className="text-[12px] font-semibold" style={{ color: 'var(--text)' }}>Ops focus</div>
+                  <p className="mt-2 text-[12px] leading-relaxed" style={{ color: 'var(--muted)' }}>
+                    Watch margin, quota burn and provider errors before customers feel them.
+                  </p>
+                </div>
+              </nav>
+
+              <section className="rounded-[30px] border p-5" style={{ borderColor: 'var(--border)', background: 'var(--surface)', boxShadow: 'var(--shadow)' }}>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="text-[12px] font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--faint)' }}>Live operations</div>
+                    <h1 className="mt-2 max-w-3xl text-4xl font-semibold tracking-[-0.055em] md:text-5xl">
+                      Customer control room
+                    </h1>
+                    <p className="mt-3 max-w-2xl text-sm leading-6" style={{ color: 'var(--muted)' }}>
+                      A searchable admin database for installed widgets, usage burn, margins, provider health and runtime controls.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 rounded-[24px] border p-3" style={{ borderColor: 'var(--border)', background: 'var(--surface-strong)' }}>
+                    <div>
+                      <div className="text-[11px]" style={{ color: 'var(--faint)' }}>Installed</div>
+                      <div className="mt-1 text-2xl font-semibold">{fmtN(customerStats.installed)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[11px]" style={{ color: 'var(--faint)' }}>At risk</div>
+                      <div className="mt-1 text-2xl font-semibold" style={{ color: 'var(--warn)' }}>{fmtN(customerStats.counts.attention + customerStats.counts.quota)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[11px]" style={{ color: 'var(--faint)' }}>Neg. margin</div>
+                      <div className="mt-1 text-2xl font-semibold" style={{ color: customerStats.negativeMargin ? 'var(--bad)' : 'var(--good)' }}>{fmtN(customerStats.negativeMargin)}</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <section className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-8">
+              <SummaryTile icon={UserRound} label="Customers" value={fmtN(totals.users)} sub={`${customerStats.installed} installed`} tone="blue" />
+              <SummaryTile icon={Wallet} label="MRR" value={eur(totals.monthly_recurring_cents)} sub="monthly plan value" tone="good" />
+              <SummaryTile icon={Gauge} label="Usage cost" value={eur(totals.usage_cost_cents)} sub={`${eur(providerCost)} providers`} tone="default" />
+              <SummaryTile icon={Activity} label="Voice" value={fmtSeconds(totals.voice_seconds)} sub={`${fmtN(totals.conversations)} conv.`} tone="blue" />
+              <SummaryTile icon={CheckCircle2} label="Healthy" value={fmtN(customerStats.counts.healthy)} sub="no action" tone="good" />
+              <SummaryTile icon={AlertTriangle} label="Attention" value={fmtN(customerStats.counts.attention)} sub="review" tone="warn" />
+              <SummaryTile icon={ShieldAlert} label="Quota" value={fmtN(customerStats.counts.quota)} sub="blocked" tone="bad" />
+              <SummaryTile icon={LineChart} label="Health" value={healthOk == null ? '-' : healthOk ? 'OK' : 'Check'} sub={`${inlineErrors.length} alerts`} tone={healthOk === false ? 'warn' : 'good'} />
             </section>
 
-            <section className="border border-white/10 bg-[#0b0c10]">
-              <div className="border-b border-white/10 p-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <section className="rounded-[28px] border" style={{ borderColor: 'var(--border)', background: 'var(--surface)', boxShadow: 'var(--shadow)' }}>
+              <div className="border-b p-4" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                   <div>
-                    <div className="text-[10px] uppercase tracking-[0.22em] text-white/34">Customer database</div>
-                    <h1 className="mt-1 text-xl font-semibold text-white">
+                    <div className="text-[12px] font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--faint)' }}>Customer database</div>
+                    <h2 className="mt-1 text-2xl font-semibold tracking-[-0.04em]">
                       {fmtN(filteredCustomers.length)} records
-                      <span className="ml-2 text-sm font-normal text-white/35">of {fmtN(customers.length)}</span>
-                    </h1>
+                      <span className="ml-2 text-sm font-normal" style={{ color: 'var(--faint)' }}>of {fmtN(customers.length)}</span>
+                    </h2>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/28" />
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: 'var(--faint)' }} />
                       <input
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="Search email, site, id..."
-                        className="h-10 w-[260px] border border-white/10 bg-black/30 pl-9 pr-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#9ac4ff]/45"
+                        className="h-11 w-[280px] rounded-full border bg-transparent pl-9 pr-3 text-sm outline-none"
+                        style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
                       />
                     </div>
-                    <select
-                      value={plan}
-                      onChange={(e) => setPlan(e.target.value)}
-                      className="h-10 border border-white/10 bg-black/30 px-3 text-sm text-white outline-none focus:border-[#9ac4ff]/45"
-                      aria-label="Plan filter"
-                    >
+                    <select value={plan} onChange={(e) => setPlan(e.target.value)} className="h-11 rounded-full border bg-transparent px-3 text-sm outline-none" style={{ borderColor: 'var(--border)', color: 'var(--text)' }}>
                       {PLANS.map((p) => <option key={p} value={p}>{p === 'all' ? 'All plans' : p}</option>)}
                     </select>
-                    <select
-                      value={status}
-                      onChange={(e) => setStatus(e.target.value)}
-                      className="h-10 border border-white/10 bg-black/30 px-3 text-sm text-white outline-none focus:border-[#9ac4ff]/45"
-                      aria-label="Status filter"
-                    >
+                    <select value={status} onChange={(e) => setStatus(e.target.value)} className="h-11 rounded-full border bg-transparent px-3 text-sm outline-none" style={{ borderColor: 'var(--border)', color: 'var(--text)' }}>
                       {STATUSES.map((s) => <option key={s} value={s}>{s === 'all' ? 'All status' : statusLabel(s)}</option>)}
                     </select>
-                    <button
-                      type="button"
-                      onClick={() => { setQuery(''); setPlan('all'); setStatus('all'); setSort({ key: 'margin', dir: 'asc' }); }}
-                      className="inline-flex h-10 items-center gap-2 border border-white/10 px-3 text-sm text-white/52 hover:text-white"
-                    >
-                      <SlidersHorizontal className="h-4 w-4" />
+                    <ControlButton icon={Filter} onClick={() => { setQuery(''); setPlan('all'); setStatus('all'); setSort({ key: 'margin', dir: 'asc' }); }}>
                       Reset
-                    </button>
-                    <button
-                      type="button"
-                      onClick={exportCsv}
-                      className="inline-flex h-10 items-center gap-2 border border-[#9ac4ff]/24 bg-[#9ac4ff]/8 px-3 text-sm text-[#bcd6ff] hover:border-[#9ac4ff]/45"
-                    >
-                      <Download className="h-4 w-4" />
+                    </ControlButton>
+                    <ControlButton icon={Download} active onClick={exportCsv}>
                       CSV
-                    </button>
+                    </ControlButton>
                   </div>
                 </div>
               </div>
 
-              <div className="max-h-[calc(100vh-315px)] min-h-[420px] overflow-auto">
-                <table className="w-full min-w-[1180px] border-collapse text-[12px]">
-                  <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#111218]">
+              <div className="max-h-[calc(100vh-390px)] min-h-[430px] overflow-auto">
+                <table className="w-full min-w-[1220px] border-collapse text-[13px]">
+                  <thead className="sticky top-0 z-10 border-b backdrop-blur" style={{ borderColor: 'var(--border)', background: 'var(--page-soft)' }}>
                     <tr>
-                      <th className="w-[280px] px-3 py-2 text-left"><SortButton id="customer" label="Customer" sort={sort} setSort={setSort} /></th>
-                      <th className="px-3 py-2 text-left"><SortButton id="plan" label="Plan" sort={sort} setSort={setSort} /></th>
-                      <th className="px-3 py-2 text-left"><SortButton id="status" label="Status" sort={sort} setSort={setSort} /></th>
-                      <th className="px-3 py-2 text-right"><SortButton id="sessions" label="Sessions" sort={sort} setSort={setSort} align="right" /></th>
-                      <th className="px-3 py-2 text-right">Voice</th>
-                      <th className="px-3 py-2 text-right">TTS</th>
-                      <th className="px-3 py-2 text-right">LLM</th>
-                      <th className="w-[150px] px-3 py-2 text-left"><SortButton id="usage" label="Burn" sort={sort} setSort={setSort} /></th>
-                      <th className="px-3 py-2 text-right"><SortButton id="cost" label="Cost" sort={sort} setSort={setSort} align="right" /></th>
-                      <th className="px-3 py-2 text-right"><SortButton id="margin" label="Margin" sort={sort} setSort={setSort} align="right" /></th>
-                      <th className="px-3 py-2 text-right"><SortButton id="activity" label="Activity" sort={sort} setSort={setSort} align="right" /></th>
+                      <th className="w-[300px] px-4 py-3 text-left"><SortButton id="customer" label="Customer" sort={sort} setSort={setSort} /></th>
+                      <th className="px-4 py-3 text-left"><SortButton id="plan" label="Plan" sort={sort} setSort={setSort} /></th>
+                      <th className="px-4 py-3 text-left"><SortButton id="status" label="Status" sort={sort} setSort={setSort} /></th>
+                      <th className="px-4 py-3 text-right"><SortButton id="sessions" label="Sessions" sort={sort} setSort={setSort} align="right" /></th>
+                      <th className="px-4 py-3 text-right">Voice</th>
+                      <th className="px-4 py-3 text-right">TTS</th>
+                      <th className="px-4 py-3 text-right">LLM</th>
+                      <th className="w-[150px] px-4 py-3 text-left"><SortButton id="usage" label="Burn" sort={sort} setSort={setSort} /></th>
+                      <th className="px-4 py-3 text-right"><SortButton id="cost" label="Cost" sort={sort} setSort={setSort} align="right" /></th>
+                      <th className="px-4 py-3 text-right"><SortButton id="margin" label="Margin" sort={sort} setSort={setSort} align="right" /></th>
+                      <th className="px-4 py-3 text-right"><SortButton id="activity" label="Activity" sort={sort} setSort={setSort} align="right" /></th>
                     </tr>
                   </thead>
                   <tbody>
                     {pageRows.length === 0 && (
                       <tr>
-                        <td colSpan={11} className="py-16 text-center text-sm text-white/35">No customers match the current filters.</td>
+                        <td colSpan={11} className="py-16 text-center text-sm" style={{ color: 'var(--faint)' }}>No customers match the current filters.</td>
                       </tr>
                     )}
                     {pageRows.map((c) => {
@@ -568,34 +715,45 @@ export default function AdminDashboard({ token, onSignOut }) {
                         <tr
                           key={c.id}
                           onClick={() => setSelectedId(c.id)}
-                          className={cx(
-                            'cursor-pointer border-b border-white/6 hover:bg-white/[0.04]',
-                            selectedRow ? 'bg-[#9ac4ff]/8 outline outline-1 outline-[#9ac4ff]/20' : '',
-                          )}
+                          className="cursor-pointer border-b transition"
+                          style={{
+                            borderColor: 'var(--border)',
+                            background: selectedRow ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : 'transparent',
+                          }}
                         >
-                          <td className="px-3 py-2.5">
-                            <div className="truncate text-sm text-white">{c.email || '-'}</div>
-                            <div className="mt-0.5 truncate text-[11px] text-white/34">{c.site_url || c.name || `id #${c.id}`}</div>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border" style={{ borderColor: 'var(--border)', background: 'var(--surface-strong)' }}>
+                                <Users className="h-4 w-4" style={{ color: 'var(--accent)' }} />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="truncate font-semibold" style={{ color: 'var(--text)' }}>{c.email || '-'}</div>
+                                <div className="mt-0.5 truncate text-[12px]" style={{ color: 'var(--faint)' }}>{c.site_url || c.name || `id #${c.id}`}</div>
+                              </div>
+                            </div>
                           </td>
-                          <td className="px-3 py-2.5"><Pill tone={c.plan === 'free' ? 'default' : 'blue'}>{c.plan}</Pill></td>
-                          <td className="px-3 py-2.5">
-                            <Pill tone={rowStatus === 'healthy' ? 'good' : rowStatus === 'quota' ? 'bad' : 'warn'}>{statusLabel(rowStatus)}</Pill>
+                          <td className="px-4 py-3"><Pill tone={c.plan === 'free' ? 'default' : 'blue'}>{c.plan}</Pill></td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1.5">
+                              <Pill tone={rowStatus === 'healthy' ? 'good' : rowStatus === 'quota' ? 'bad' : 'warn'}>{statusLabel(rowStatus)}</Pill>
+                              {!c.agent_enabled && <Pill tone="bad">Paused</Pill>}
+                            </div>
                           </td>
-                          <td className="px-3 py-2.5 text-right text-white/70">{fmtN(c.session_count)} / {fmtN(c.session_limit)}</td>
-                          <td className="px-3 py-2.5 text-right text-white/58">{fmtSeconds(c.voice_seconds_used)}</td>
-                          <td className="px-3 py-2.5 text-right text-white/58">{fmtN(c.tts_chars_used)}</td>
-                          <td className="px-3 py-2.5 text-right text-white/58">{fmtN(c.llm_tokens_used)}</td>
-                          <td className="px-3 py-2.5">
-                            <div className="mb-1 flex items-center justify-between">
-                              <span className={cx('rounded-full border px-1.5 py-0.5', usageTone(c.max_usage_pct))}>{fmtPct(c.max_usage_pct)}</span>
+                          <td className="px-4 py-3 text-right" style={{ color: 'var(--muted)' }}>{fmtN(c.session_count)} / {fmtN(c.session_limit)}</td>
+                          <td className="px-4 py-3 text-right" style={{ color: 'var(--muted)' }}>{fmtSeconds(c.voice_seconds_used)}</td>
+                          <td className="px-4 py-3 text-right" style={{ color: 'var(--muted)' }}>{fmtN(c.tts_chars_used)}</td>
+                          <td className="px-4 py-3 text-right" style={{ color: 'var(--muted)' }}>{fmtN(c.llm_tokens_used)}</td>
+                          <td className="px-4 py-3">
+                            <div className="mb-1.5 flex items-center justify-between">
+                              <span className="rounded-full border px-2 py-0.5 text-[11px] font-semibold" style={toneStyle(usageTone(c.max_usage_pct))}>{fmtPct(c.max_usage_pct)}</span>
                             </div>
                             <UsageBar value={c.max_usage_pct} />
                           </td>
-                          <td className="px-3 py-2.5 text-right text-white/58">{eur(c.estimated_cost_cents)}</td>
-                          <td className={cx('px-3 py-2.5 text-right', c.margin_cents < 0 ? 'text-[#ff9c9c]' : c.margin_cents < c.revenue_cents * 0.3 ? 'text-[#ffd58a]' : 'text-[#67e6a0]')}>
+                          <td className="px-4 py-3 text-right" style={{ color: 'var(--muted)' }}>{eur(c.estimated_cost_cents)}</td>
+                          <td className="px-4 py-3 text-right font-semibold" style={{ color: c.margin_cents < 0 ? 'var(--bad)' : c.margin_cents < c.revenue_cents * 0.3 ? 'var(--warn)' : 'var(--good)' }}>
                             {eur(c.margin_cents)}
                           </td>
-                          <td className="px-3 py-2.5 text-right text-white/38">{fmtRelative(c.activity_at)}</td>
+                          <td className="px-4 py-3 text-right" style={{ color: 'var(--faint)' }}>{fmtRelative(c.activity_at)}</td>
                         </tr>
                       );
                     })}
@@ -603,58 +761,39 @@ export default function AdminDashboard({ token, onSignOut }) {
                 </table>
               </div>
 
-              <div className="flex flex-col gap-3 border-t border-white/10 px-4 py-3 text-[12px] text-white/45 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-3 border-t px-4 py-3 text-[13px] md:flex-row md:items-center md:justify-between" style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
                 <div>
                   Showing {filteredCustomers.length ? fmtN((safePage - 1) * pageSize + 1) : 0}
                   {' '}to {fmtN(Math.min(safePage * pageSize, filteredCustomers.length))}
                   {' '}of {fmtN(filteredCustomers.length)}
                 </div>
                 <div className="flex items-center gap-2">
-                  <select
-                    value={pageSize}
-                    onChange={(e) => setPageSize(Number(e.target.value))}
-                    className="h-8 border border-white/10 bg-black/30 px-2 text-white outline-none"
-                    aria-label="Rows per page"
-                  >
+                  <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="h-9 rounded-full border bg-transparent px-2 outline-none" style={{ borderColor: 'var(--border)', color: 'var(--text)' }}>
                     {PAGE_SIZES.map((s) => <option key={s} value={s}>{s} rows</option>)}
                   </select>
-                  <button
-                    type="button"
-                    disabled={safePage <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    className="h-8 border border-white/10 px-3 disabled:opacity-35"
-                  >
-                    Prev
-                  </button>
-                  <span className="min-w-[72px] text-center">Page {safePage}/{totalPages}</span>
-                  <button
-                    type="button"
-                    disabled={safePage >= totalPages}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    className="h-8 border border-white/10 px-3 disabled:opacity-35"
-                  >
-                    Next
-                  </button>
+                  <ControlButton icon={ChevronLeft} disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>Prev</ControlButton>
+                  <span className="min-w-[74px] text-center">Page {safePage}/{totalPages}</span>
+                  <ControlButton icon={ChevronRight} disabled={safePage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>Next</ControlButton>
                 </div>
               </div>
             </section>
 
             <section className="mt-5 grid gap-4 lg:grid-cols-2">
-              <div className="border border-white/10 bg-[#0b0c10] p-4">
-                <h2 className="mb-3 text-[10px] uppercase tracking-[0.2em] text-white/34">Provider spend by metric</h2>
+              <div className="rounded-[28px] border p-5" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+                <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Zap className="h-4 w-4" /> Provider spend by metric</h2>
                 <div className="max-h-56 overflow-auto">
-                  <table className="w-full text-[12px]">
-                    <thead className="text-[10px] uppercase tracking-[0.16em] text-white/32">
-                      <tr><th className="py-1 text-left">Provider</th><th className="text-left">Metric</th><th className="text-right">Amount</th><th className="text-right">Cost</th></tr>
+                  <table className="w-full text-[13px]">
+                    <thead className="text-[11px] uppercase tracking-[0.08em]" style={{ color: 'var(--faint)' }}>
+                      <tr><th className="py-2 text-left">Provider</th><th className="text-left">Metric</th><th className="text-right">Amount</th><th className="text-right">Cost</th></tr>
                     </thead>
                     <tbody>
-                      {byProvider.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-white/32">No usage recorded</td></tr>}
+                      {byProvider.length === 0 && <tr><td colSpan={4} className="py-6 text-center" style={{ color: 'var(--faint)' }}>No usage recorded</td></tr>}
                       {byProvider.map((p, i) => (
-                        <tr key={`${p.provider}-${p.metric}-${i}`} className="border-t border-white/6">
-                          <td className="py-2 text-white/72">{p.provider}</td>
-                          <td className="text-white/45">{p.metric}</td>
-                          <td className="text-right text-white/62">{fmtN(p.amount)}</td>
-                          <td className="text-right text-white/62">{eur(p.cost_cents)}</td>
+                        <tr key={`${p.provider}-${p.metric}-${i}`} className="border-t" style={{ borderColor: 'var(--border)' }}>
+                          <td className="py-2 font-semibold">{p.provider}</td>
+                          <td style={{ color: 'var(--muted)' }}>{p.metric}</td>
+                          <td className="text-right" style={{ color: 'var(--muted)' }}>{fmtN(p.amount)}</td>
+                          <td className="text-right" style={{ color: 'var(--muted)' }}>{eur(p.cost_cents)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -662,27 +801,27 @@ export default function AdminDashboard({ token, onSignOut }) {
                 </div>
               </div>
 
-              <div className="border border-white/10 bg-[#0b0c10] p-4">
-                <h2 className="mb-3 text-[10px] uppercase tracking-[0.2em] text-white/34">Provider errors and health</h2>
+              <div className="rounded-[28px] border p-5" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+                <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Eye className="h-4 w-4" /> Provider errors and uptime</h2>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-2">
-                    {inlineErrors.length === 0 && <div className="text-[12px] text-white/32">No provider errors recorded.</div>}
+                    {inlineErrors.length === 0 && <div className="text-[13px]" style={{ color: 'var(--faint)' }}>No provider errors recorded.</div>}
                     {inlineErrors.slice(0, 6).map((e) => (
-                      <div key={`${e.provider}-${e.last_at}`} className="flex items-center justify-between border border-white/8 bg-white/[0.025] px-3 py-2 text-[12px]">
-                        <span className="text-white/72">{e.provider}</span>
-                        <span className="text-[#ff9c9c]">{fmtN(e.count)}</span>
-                        <span className="text-white/32">{fmtRelative(e.last_at)}</span>
+                      <div key={`${e.provider}-${e.last_at}`} className="flex items-center justify-between rounded-2xl border px-3 py-2 text-[13px]" style={{ borderColor: 'var(--border)', background: 'var(--surface-strong)' }}>
+                        <span className="font-semibold">{e.provider}</span>
+                        <span style={{ color: 'var(--bad)' }}>{fmtN(e.count)}</span>
+                        <span style={{ color: 'var(--faint)' }}>{fmtRelative(e.last_at)}</span>
                       </div>
                     ))}
                   </div>
                   <div className="space-y-2">
-                    {inlineHealth.length === 0 && <div className="text-[12px] text-white/32">No health samples yet.</div>}
+                    {inlineHealth.length === 0 && <div className="text-[13px]" style={{ color: 'var(--faint)' }}>No health samples yet.</div>}
                     {inlineHealth.slice(0, 6).map((h) => {
                       const rate = (Number(h.ok_count) || 0) / Math.max(1, Number(h.total) || 1);
                       return (
-                        <div key={h.target} className="flex items-center justify-between border border-white/8 bg-white/[0.025] px-3 py-2 text-[12px]">
-                          <span className="truncate text-white/72">{h.target}</span>
-                          <span className={rate >= 0.95 ? 'text-[#67e6a0]' : 'text-[#ff9c9c]'}>{Math.round(rate * 100)}%</span>
+                        <div key={h.target} className="flex items-center justify-between rounded-2xl border px-3 py-2 text-[13px]" style={{ borderColor: 'var(--border)', background: 'var(--surface-strong)' }}>
+                          <span className="truncate font-semibold">{h.target}</span>
+                          <span style={{ color: rate >= 0.95 ? 'var(--good)' : 'var(--bad)' }}>{Math.round(rate * 100)}%</span>
                         </div>
                       );
                     })}
@@ -692,7 +831,7 @@ export default function AdminDashboard({ token, onSignOut }) {
             </section>
           </main>
 
-          <CustomerDetail customer={selected} onClose={() => setSelectedId(null)} />
+          <CustomerDetail customer={selected} onClose={() => setSelectedId(null)} onToggleAgent={toggleAgent} actionLoading={actionLoading} />
         </div>
       )}
     </div>
